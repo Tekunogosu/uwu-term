@@ -18,6 +18,18 @@ namespace UwUTerm
         internal static ConfigFile Hotkeys;
         internal static ConfigEntry<bool> EnableReadline;
         internal static ConfigEntry<int> KillRingSize;
+        internal static ConfigEntry<int> PanelBackgroundAlpha;
+        internal static ConfigEntry<int> CompletionBackgroundAlpha;
+        internal static ConfigEntry<string> TerminalFontName;
+        internal static ConfigEntry<float> TerminalFontSize;
+        internal static ConfigEntry<bool> TerminalFontFallback;
+        internal static ConfigEntry<bool> ListFonts;
+        internal static ConfigEntry<bool> MenuComplete;
+        internal static ConfigEntry<string> CompletionSelectedColor;
+        internal static ConfigEntry<bool> CompletionDebug;
+        internal static ConfigEntry<bool> FilterCommandNames;
+        internal static ConfigEntry<string> KnownCommands;
+        internal static ConfigEntry<string> IgnoreArgumentExtensions;
         internal static ConfigEntry<bool> MailHeaders;
         internal static ConfigEntry<bool> MailCards;
         internal static ConfigEntry<bool> MailDebug;
@@ -95,6 +107,99 @@ namespace UwUTerm
 
             KillRingSize = Config.Bind("Input", "KillRingSize", 10,
                 "How many kills to remember for Alt+Y to cycle through.");
+            PanelBackgroundAlpha = Config.Bind("Interface", "PanelBackgroundAlpha", 128,
+                "Opacity, 0-255, of the panel behind the floating overlays - scrollback\n" +
+                "search, history search and the mail headers. They sit over content, so a\n" +
+                "backing makes them readable.");
+
+            CompletionBackgroundAlpha = Config.Bind("Interface", "CompletionBackgroundAlpha", 0,
+                "Opacity, 0-255, of the completion strip. It gets a line of its own rather\n" +
+                "than covering anything, so it needs no backing.");
+
+            TerminalFontName = Config.Bind("Interface", "TerminalFont", "",
+                "Font to render the terminal in. Blank keeps the game's own.\n" +
+                "\n" +
+                "Copy the .ttf or .otf into BepInEx/fonts/ and name it here:\n" +
+                "\n" +
+                "    cp /usr/share/fonts/hack/Hack-Regular.ttf <game>/BepInEx/fonts/\n" +
+                "    TerminalFont = Hack\n" +
+                "\n" +
+                "The copy is what makes it work. Steam runs the game inside a container with a\n" +
+                "/usr/share/fonts of its own, holding six DejaVu faces and nothing else, so the\n" +
+                "fonts installed on the machine cannot be reached from in here. BepInEx/fonts\n" +
+                "can be, because the game is running out of it.\n" +
+                "\n" +
+                "Matching is on the filename, ignoring case and punctuation, and the regular\n" +
+                "weight wins over its bold and italic siblings - so \"Hack\" finds\n" +
+                "Hack-Regular.ttf. A font whose filename does not resemble the family name it\n" +
+                "is known by has to be named as the file. An absolute path also works.\n" +
+                "\n" +
+                "These are searched as well, and are enough wherever nothing is sandboxing the\n" +
+                "game:\n" +
+                "  ~/.fonts, ~/.local/share/fonts\n" +
+                "  /run/host/usr/share/fonts   the real system, seen from inside a container\n" +
+                "  /usr/share/fonts\n" +
+                "  %WINDIR%/Fonts\n" +
+                "Set ListFonts under [Diagnostics] to see which of them this game can read.\n" +
+                "\n" +
+                "Pick a monospace font. The caret is drawn inline so it lands correctly either\n" +
+                "way, but the server pads `ls -l` and `ps` output to fixed columns and the `ls`\n" +
+                "reflow measures one glyph's advance - a proportional font leaves both ragged.\n" +
+                "\n" +
+                "Only terminal windows change. Titlebars, the mail client and the desktop keep\n" +
+                "the game's fonts, which its layouts are measured against.");
+
+            TerminalFontSize = Config.Bind("Interface", "TerminalFontSize", 0f,
+                "Point size for terminal text. 0 keeps whatever the game set, which is what\n" +
+                "you want unless the font you chose renders larger or smaller than the one it\n" +
+                "replaced.\n" +
+                "\n" +
+                "Every open terminal remeasures its rows when this changes, so the lines close\n" +
+                "up around a smaller size rather than leaving it stranded in the taller rows\n" +
+                "the old size was measured into.");
+
+            TerminalFontFallback = Config.Bind("Interface", "TerminalFontFallback", true,
+                "Fall back to the game's own font for glyphs the chosen one does not have.\n" +
+                "\n" +
+                "The game ships a different monospace font per locale - cyrillic, japanese and\n" +
+                "chinese each have their own - and a programming font typically covers none of\n" +
+                "them. Leaving this on means those characters keep rendering instead of coming\n" +
+                "out as empty boxes.");
+
+            MenuComplete = Config.Bind("Input", "MenuComplete", true,
+                "Tab cycles through completions instead of printing them all and stopping at\n" +
+                "the longest common prefix. Shift+Tab steps back, Escape restores what you\n" +
+                "had typed, anything else accepts the selection and carries on.");
+
+            CompletionSelectedColor = Config.Bind("Input", "CompletionSelectedColor", "#ffd75f",
+                "Colour of the highlighted candidate in the completion menu.");
+
+            FilterCommandNames = Config.Bind("Input", "FilterCommandNames", true,
+                "Leave command names out of completions for arguments. The server answers\n" +
+                "with everything in scope, commands included, because it does not know which\n" +
+                "slot you are filling - useful for the first word, noise after it.");
+
+            KnownCommands = Config.Bind("Input", "KnownCommands",
+                "aircrack, aireplay, airmon, apt-get, build, cat, cd, chgrp, chmod, chown, " +
+                "clear, cp, decipher, echo, exit, ftp, groupadd, groupdel, groups, help, " +
+                "ifconfig, iwconfig, iwlist, kill, ls, mkdir, mv, nmap, nslookup, passwd, " +
+                "ping, ps, pwd, reboot, rm, scanlib, shutdown, smtp_user_list, ssh, sudo, " +
+                "touch, useradd, userdel, whoami, whois",
+                "Names treated as commands by the filter above.\n" +
+                "\n" +
+                "This is only a starting point. Completing on an empty prompt asks the server\n" +
+                "for the command slot, and the answer is the real command list for that\n" +
+                "machine - so one Tab on a blank line teaches the filter everything actually\n" +
+                "installed there, custom binaries included. This list covers you until then.");
+
+            IgnoreArgumentExtensions = Config.Bind("Input", "IgnoreArgumentExtensions", ".exe",
+                "File extensions never offered when completing an argument. .exe is a\n" +
+                "windowed program - something you launch, never something you pass to\n" +
+                "another command. Completing the first word still offers them.");
+
+            CompletionDebug = Config.Bind("Diagnostics", "CompletionDebug", true,
+                "Log the raw candidate list the server sends back for a Tab completion.");
+
             MailHeaders = Config.Bind("Mail", "ShowHeaderLink", true,
                 "Add a \"headers\" link to each message in the mail client, showing sender,\n" +
                 "recipient, direction and the rest of what the game stores about it.");
@@ -219,6 +324,12 @@ namespace UwUTerm
 
             ReadlineDebug = Config.Bind("Diagnostics", "ReadlineDebug", false,
                 "Log word-movement maths.");
+
+            ListFonts = Config.Bind("Diagnostics", "ListFonts", false,
+                "Log every directory TerminalFont searches, whether this game can read it, and\n" +
+                "the fonts in it. Printed once, whether set at startup or turned on while the\n" +
+                "game runs. A name TerminalFont cannot match prints the same thing, so this is\n" +
+                "only needed to browse before choosing.");
             EnableLsColumns = Config.Bind("Output", "EnableLsColumns", true,
                 "Reflow bare `ls` output into columns, the way `ls -C` does.");
             NormalizeLsFlags = Config.Bind("Output", "NormalizeLsFlags", true,
@@ -265,7 +376,9 @@ namespace UwUTerm
             Register("prompt", () => _harmony.PatchAll(typeof(Prompt)));
             Register("mail", () => _harmony.PatchAll(typeof(MailHeaders)));
             Register("history", () => History.Apply(_harmony));
+            Register("completion", () => Completion.Apply(_harmony));
             Register("windows", () => WindowSnap.Apply(_harmony));
+            Register("terminal-font", () => TerminalFont.Apply(_harmony));
             Register("window-close", () => _harmony.PatchAll(typeof(WindowClose)));
             BindHotkeys();
             PruneOrphanedSettings(Config, "settings");
@@ -377,6 +490,7 @@ namespace UwUTerm
         private void Update()
         {
             Patches.WindowSnap.Tick();
+            Patches.Completion.Tick();
             PollConfigFile();
         }
 
@@ -406,6 +520,7 @@ namespace UwUTerm
 
                 Config.Reload();
                 Hotkeys?.Reload();
+                TerminalFont.OnConfigReloaded();
                 Log.LogInfo("config reloaded");
             }
             catch (System.Exception e)

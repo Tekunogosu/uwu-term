@@ -323,7 +323,8 @@ namespace UwUTerm.Patches
                 parent,
                 sample?.font,
                 sample != null ? sample.fontSize : 14f,
-                new Vector2(-12f, -34f));
+                new Vector2(-12f, -34f),
+                UwUTermPlugin.PanelBackgroundAlpha.Value);
 
             panel.Show();
             return panel;

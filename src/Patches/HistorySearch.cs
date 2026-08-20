@@ -235,7 +235,8 @@ namespace UwUTerm.Patches
                               ?? terminal.GetComponentInChildren<TMP_Text>();
 
             Overlay panel = Overlay.CreateTopRight(
-                parent, sample?.font, sample != null ? sample.fontSize : 14f, new Vector2(-12f, -34f));
+                parent, sample?.font, sample != null ? sample.fontSize : 14f, new Vector2(-12f, -34f),
+                UwUTermPlugin.PanelBackgroundAlpha.Value);
             panel.Show();
             return panel;
         }

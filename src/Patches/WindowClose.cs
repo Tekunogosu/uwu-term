@@ -21,6 +21,7 @@ namespace UwUTerm.Patches
         {
             Search.Dismiss(__instance);
             HistorySearch.Dismiss(__instance);
+            Completion.Dismiss(__instance);
             MailHeaders.Dismiss(__instance);
         }
     }

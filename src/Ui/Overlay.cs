@@ -19,12 +19,15 @@ namespace UwUTerm.Ui
     {
         private const float PadX = 10f;
         private const float PadY = 5f;
+        private const float MaxStretchHeight = 110f;
 
         private readonly GameObject _root;
         private readonly RectTransform _rect;
         private readonly Image _background;
         private readonly Outline _outline;
         private readonly TextMeshProUGUI _label;
+        private bool _stretch;
+        private int _alpha = 128;
 
         internal bool Visible => _root != null && _root.activeSelf;
 
@@ -37,7 +40,29 @@ namespace UwUTerm.Ui
             _label = label;
         }
 
-        internal static Overlay CreateTopRight(RectTransform parent, TMP_FontAsset font, float fontSize, Vector2 offset)
+        /// <summary>Full-width strip along the bottom of the window, wrapping so a long
+        /// list stays inside the text area instead of running off the side.</summary>
+        internal static Overlay CreateBottom(RectTransform parent, TMP_FontAsset font, float fontSize, float margin, float height, int alpha)
+        {
+            Overlay overlay = Build(parent, font, fontSize, alpha);
+            overlay._stretch = true;
+
+            RectTransform rect = overlay._rect;
+            rect.anchorMin = new Vector2(0f, 0f);
+            rect.anchorMax = new Vector2(1f, 0f);
+            rect.pivot = new Vector2(0.5f, 0f);
+            rect.offsetMin = new Vector2(margin, 0f);
+            rect.offsetMax = new Vector2(-margin, height);
+
+            // One line, truncated: the counter says how many candidates there are, so
+            // wrapping to a second row costs terminal space to repeat what is already known.
+            overlay._label.enableWordWrapping = false;
+            overlay._label.overflowMode = TextOverflowModes.Truncate;
+            overlay._label.alignment = TextAlignmentOptions.MidlineLeft;
+            return overlay;
+        }
+
+        internal static Overlay CreateTopRight(RectTransform parent, TMP_FontAsset font, float fontSize, Vector2 offset, int alpha)
         {
             var root = new GameObject("UwUTerm.Overlay", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Outline));
             var rect = (RectTransform)root.transform;
@@ -69,10 +94,13 @@ namespace UwUTerm.Ui
             if (font != null) label.font = font;
             label.fontSize = fontSize;
 
-            var overlay = new Overlay(root, rect, background, outline, label);
+            var overlay = new Overlay(root, rect, background, outline, label) { _alpha = alpha };
             overlay.ApplyTheme();
             return overlay;
         }
+
+        private static Overlay Build(RectTransform parent, TMP_FontAsset font, float fontSize, int alpha) =>
+            CreateTopRight(parent, font, fontSize, Vector2.zero, alpha);
 
         /// <summary>Colours come from the active UI_Theme so the panel tracks whatever theme
         /// the player is running.</summary>
@@ -82,9 +110,13 @@ namespace UwUTerm.Ui
             if (theme == null) return;
 
             Color32 background = theme.contextualBackground;
-            background.a = 245;
+            background.a = (byte)Mathf.Clamp(_alpha, 0, 255);
             _background.color = background;
-            _outline.effectColor = theme.outline;
+
+            Color32 edge = theme.outline;
+            edge.a = background.a == 0 ? (byte)0 : edge.a;
+            _outline.effectColor = edge;
+
             _label.color = theme.contextualText;
         }
 
@@ -93,8 +125,13 @@ namespace UwUTerm.Ui
             _label.text = markup;
             _label.ForceMeshUpdate();
 
-            float width = Mathf.Max(120f, _label.preferredWidth + PadX * 2f);
             float height = Mathf.Max(22f, _label.preferredHeight + PadY * 2f);
+
+            // A bottom strip keeps the size it was given - the terminal above it has been
+            // shortened to match, and resizing per keystroke would fight that.
+            if (_stretch) return;
+
+            float width = Mathf.Max(120f, _label.preferredWidth + PadX * 2f);
             _rect.sizeDelta = new Vector2(width, height);
         }
 

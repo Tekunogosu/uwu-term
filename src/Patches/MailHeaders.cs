@@ -221,7 +221,8 @@ namespace UwUTerm.Patches
             if (_panel == null || _panelOwner != window)
             {
                 _panel?.Destroy();
-                _panel = Overlay.CreateTopRight(parent, null, 13f, new Vector2(-12f, -60f));
+                _panel = Overlay.CreateTopRight(parent, null, 13f, new Vector2(-12f, -60f),
+                    UwUTermPlugin.PanelBackgroundAlpha.Value);
                 _panelOwner = window;
             }
 

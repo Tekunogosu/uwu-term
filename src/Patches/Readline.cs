@@ -60,6 +60,13 @@ namespace UwUTerm.Patches
             // also move its caret on the arrow keys they use.
             if (e.control && e.alt && e.shift) { e.Use(); return false; }
 
+            // A completion menu takes keys first, and hands back the ones that end it.
+            if (Completion.IsActive(__instance))
+            {
+                if (Completion.HandleKey(__instance, adapter, e)) { e.Use(); return false; }
+                return true;
+            }
+
             // An incremental history search takes keys first, and hands back the ones that
             // end it so the terminal still acts on them.
             if (HistorySearch.IsActive(__instance))

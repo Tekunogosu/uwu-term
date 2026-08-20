@@ -28,6 +28,19 @@ The ring is shared across terminal windows, so you can kill in one and yank in a
 remote variants, and per-role colours. See the `[Prompt]` section of the config, which
 documents itself.
 
+**Terminal font** - render the terminal in any font on your machine. Copy the `.ttf` or
+`.otf` into `BepInEx/fonts/` and name it in `TerminalFont`:
+
+```sh
+cp /usr/share/fonts/hack/Hack-Regular.ttf "<game>/BepInEx/fonts/"
+```
+
+The copy is what makes it work. Steam runs the game inside a container carrying its own
+`/usr/share/fonts` - six DejaVu faces and nothing else - so the fonts installed on the
+machine are out of reach from in there, while `BepInEx/fonts` is reachable because the
+game is running out of it. The game's own font stays on as a fallback, so glyphs your
+font lacks still render instead of turning into empty boxes.
+
 **Window snapping** - drag a window to a screen edge for half, a corner for a quarter,
 the top to fill. Hold Ctrl (configurable) to drag a window from anywhere, not just its
 titlebar.

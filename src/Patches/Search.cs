@@ -96,7 +96,7 @@ namespace UwUTerm.Patches
                     return true;
             }
 
-            if (e.control && e.keyCode == KeyCode.F)
+            if (Readline.Matches(UwUTermPlugin.SearchScrollback.Value, e))
             {
                 Step(terminal, adapter, session, backwards: true);
                 return true;

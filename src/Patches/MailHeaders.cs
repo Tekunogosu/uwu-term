@@ -58,11 +58,9 @@ namespace UwUTerm.Patches
             {
                 int message = mail.messages.Count - 1 - row;
                 if (message < 0 || message >= mail.messages.Count) continue;
-                Attach(__instance, rows[row], mail, message);
+                RectTransform card = UwUTermPlugin.MailCards.Value ? Card(rows[row]) : null;
+                Attach(__instance, rows[row], mail, message, card);
             }
-
-            if (UwUTermPlugin.MailCards.Value)
-                foreach (GameObject row in new List<GameObject>(rows)) Card(row);
         }
 
         /// <summary>
@@ -97,10 +95,10 @@ namespace UwUTerm.Patches
         /// It has to sit on an ancestor, hence re-parenting the row into a new object that
         /// takes its place in the layout.
         /// </summary>
-        private static void Card(GameObject row)
+        private static RectTransform Card(GameObject row)
         {
-            if (row == null || row.transform.parent == null) return;
-            if (row.transform.parent.name == CardName) return;
+            if (row == null || row.transform.parent == null) return null;
+            if (row.transform.parent.name == CardName) return (RectTransform)row.transform.parent;
 
             Transform container = row.transform.parent;
             int index = row.transform.GetSiblingIndex();
@@ -142,6 +140,8 @@ namespace UwUTerm.Patches
 
             if (UwUTermPlugin.MailDebug.Value)
                 UwUTermPlugin.Log.LogInfo("mail: container components - " + Describe(container));
+
+            return cardRect;
         }
 
         private static string Describe(Transform t)
@@ -152,18 +152,34 @@ namespace UwUTerm.Patches
             return string.Join(", ", names.ToArray());
         }
 
-        private static void Attach(MailWindow window, GameObject row, Mail mail, int message)
+        private static void Attach(MailWindow window, GameObject row, Mail mail, int message, RectTransform card)
         {
-            if (row == null || row.transform.Find(LinkName) != null) return;
+            if (row == null) return;
+
+            Transform host = card != null ? (Transform)card : row.transform;
+            if (host.Find(LinkName) != null) return;
 
             TMP_Text body = row.GetComponent<TMP_Text>();
 
             var link = new GameObject(LinkName, typeof(RectTransform), typeof(CanvasRenderer));
             var rect = (RectTransform)link.transform;
-            rect.SetParent(row.transform, false);
-            rect.anchorMin = rect.anchorMax = rect.pivot = new Vector2(1f, 1f);
-            rect.anchoredPosition = new Vector2(-4f, -2f);
-            rect.sizeDelta = new Vector2(90f, 18f);
+            rect.SetParent(host, false);
+
+            if (card != null)
+            {
+                // A row of the card's vertical layout, above the body - so the text simply
+                // starts below it and no margin has to be reserved for a possible overlap.
+                rect.SetAsFirstSibling();
+                var element = link.AddComponent<LayoutElement>();
+                element.preferredHeight = LinkHeight;
+                element.flexibleWidth = 1f;
+            }
+            else
+            {
+                rect.anchorMin = rect.anchorMax = rect.pivot = new Vector2(1f, 1f);
+                rect.anchoredPosition = new Vector2(-4f, -2f);
+                rect.sizeDelta = new Vector2(90f, LinkHeight);
+            }
 
             var label = link.AddComponent<TextMeshProUGUI>();
             label.text = "headers";
@@ -180,10 +196,10 @@ namespace UwUTerm.Patches
             button.targetGraphic = label;
             button.onClick.AddListener(() => Toggle(window, mail, message));
 
-            // Push the body down so a long first line cannot run under the link. The game
-            // already uses the top margin this way for attachments, so add to whatever it
-            // set rather than replacing it.
-            if (body != null)
+            // Without a card the link floats over the body, so space has to be reserved
+            // for it. The game already uses the top margin this way for attachments, so add
+            // to whatever it set rather than replacing it.
+            if (card == null && body != null)
             {
                 Vector4 margin = body.margin;
                 margin.y += LinkHeight;

@@ -2,6 +2,7 @@ using BepInEx;
 using BepInEx.Configuration;
 using BepInEx.Logging;
 using HarmonyLib;
+using UnityEngine;
 using UwUTerm.Patches;
 
 namespace UwUTerm
@@ -14,6 +15,7 @@ namespace UwUTerm
         public const string Version = "0.1.0";
 
         internal static ManualLogSource Log;
+        internal static ConfigFile Hotkeys;
         internal static ConfigEntry<bool> EnableReadline;
         internal static ConfigEntry<int> KillRingSize;
         internal static ConfigEntry<bool> MailHeaders;
@@ -40,6 +42,21 @@ namespace UwUTerm
         internal static ConfigEntry<bool> NormalizeLsFlags;
         internal static ConfigEntry<bool> EnableWindowSnap;
         internal static ConfigEntry<bool> SnapTopMaximizes;
+        internal static ConfigEntry<bool> SnapPreview;
+        internal static ConfigEntry<bool> SkipDragFocus;
+
+        internal static ConfigEntry<bool> EnableSnapHotkeys;
+        internal static ConfigEntry<KeyboardShortcut> SnapLeft;
+        internal static ConfigEntry<KeyboardShortcut> SnapRight;
+        internal static ConfigEntry<KeyboardShortcut> SnapFull;
+        internal static ConfigEntry<KeyboardShortcut> SnapQuadrant1;
+        internal static ConfigEntry<KeyboardShortcut> SnapQuadrant2;
+        internal static ConfigEntry<KeyboardShortcut> SnapQuadrant3;
+        internal static ConfigEntry<KeyboardShortcut> SnapQuadrant4;
+
+        internal static ConfigEntry<KeyboardShortcut> SearchScrollback;
+        internal static ConfigEntry<KeyboardShortcut> HistorySearchBackward;
+        internal static ConfigEntry<KeyboardShortcut> HistorySearchForward;
         internal static ConfigEntry<float> SnapEdgeMargin;
         internal static ConfigEntry<float> SnapCornerBand;
         internal static ConfigEntry<bool> SnapDebug;
@@ -69,6 +86,8 @@ namespace UwUTerm
                 "        Alt+U/L/C upper, lower, capitalise word\n" +
                 "        Ctrl+Z undo               Ctrl+L clear screen\n" +
                 "HIST    Ctrl+P/N previous, next\n" +
+                "        Ctrl+R/S search history backwards, forwards\n" +
+                "FIND    Ctrl+F search the scrollback\n" +
                 "\n" +
                 "Consecutive kills accumulate into one kill-ring entry, so Ctrl+W Ctrl+W then\n" +
                 "Ctrl+Y brings both words back in order. Alt+Y only works straight after a\n" +
@@ -84,7 +103,7 @@ namespace UwUTerm
                 "Draw each message in a thread as its own panel, so replies are separated\n" +
                 "instead of running together.");
 
-            MailDebug = Config.Bind("Diagnostics", "MailDebug", true,
+            MailDebug = Config.Bind("Diagnostics", "MailDebug", false,
                 "Log when a mail is opened and how many message rows were found.");
 
             SearchMatchTextColor = Config.Bind("Search", "MatchTextColor", "#7fb4ff",
@@ -142,7 +161,9 @@ namespace UwUTerm
                 "COLOUR   {#name} (from Palette) or {#rrggbb} (literal)\n" +
                 "         {/} clears it again\n" +
                 "SPACING  \\n or {nl} = newline, {sp} = space\n" +
-                "         (a trailing space cannot be used - config values are trimmed)\n" +
+                "         The template is the entire prompt - the trailing space the server\n" +
+                "         sends is dropped, so end with {sp} or your command runs into it.\n" +
+                "         (a literal trailing space will not survive - config values are trimmed)\n" +
                 "\n" +
                 "HOW COLOUR WORKS\n" +
                 "Literal text is not coloured at all by default, so it uses the terminal\n" +
@@ -196,7 +217,7 @@ namespace UwUTerm
             PromptSymRemote = Config.Bind("Prompt", "SymRemote", "",
                 "Overlays Sym when remote - only the roles listed here change.");
 
-            ReadlineDebug = Config.Bind("Diagnostics", "ReadlineDebug", true,
+            ReadlineDebug = Config.Bind("Diagnostics", "ReadlineDebug", false,
                 "Log word-movement maths.");
             EnableLsColumns = Config.Bind("Output", "EnableLsColumns", true,
                 "Reflow bare `ls` output into columns, the way `ls -C` does.");
@@ -205,6 +226,19 @@ namespace UwUTerm
                 "-la the server expects.");
             EnableWindowSnap = Config.Bind("Windows", "EnableWindowSnap", true,
                 "Drag a window to an edge to snap it: side for half, corner for a quarter.");
+            SkipDragFocus = Config.Bind("Windows", "SkipDragFocus", true,
+                "Skip the game's per-frame re-focus while dragging a window.\n" +
+                "\n" +
+                "uDialog re-focuses a window on every frame of a drag, and focusing reorders\n" +
+                "siblings - which dirties the whole canvas and rebuilds the batches for every\n" +
+                "window on screen. After the first frame the window is already frontmost, so\n" +
+                "the repeats do nothing but cost frames. This is the single biggest\n" +
+                "performance fix in the mod - dragging with several windows open went from\n" +
+                "about 33 fps to 120.");
+
+            SnapPreview = Config.Bind("Windows", "SnapPreview", true,
+                "Outline where a dragged window will land before you let go.");
+
             SnapTopMaximizes = Config.Bind("Windows", "SnapTopMaximizes", true,
                 "Dragging to the top edge fills the desktop.");
             SnapEdgeMargin = Config.Bind("Windows", "SnapEdgeMargin", 0.04f,
@@ -216,9 +250,9 @@ namespace UwUTerm
                 "Hold a modifier and drag anywhere on a window to move it.");
             ModifierDragKey = Config.Bind("Windows", "ModifierDragKey", "ctrl",
                 "Modifier for drag-from-anywhere: ctrl, alt or shift.");
-            SnapDebug = Config.Bind("Diagnostics", "SnapDebug", true,
+            SnapDebug = Config.Bind("Diagnostics", "SnapDebug", false,
                 "Log window drag and snap-zone decisions.");
-            DebugOutput = Config.Bind("Diagnostics", "DebugOutput", true,
+            DebugOutput = Config.Bind("Diagnostics", "DebugOutput", false,
                 "Log every command sent and every output block received. Noisy - for " +
                 "working out what the server actually sends.");
 
@@ -233,7 +267,9 @@ namespace UwUTerm
             Register("history", () => History.Apply(_harmony));
             Register("windows", () => WindowSnap.Apply(_harmony));
             Register("window-close", () => _harmony.PatchAll(typeof(WindowClose)));
-            PruneOrphanedSettings();
+            BindHotkeys();
+            PruneOrphanedSettings(Config, "settings");
+            PruneOrphanedSettings(Hotkeys, "hotkeys");
             Log.LogInfo($"{Name} {Version} ready.");
         }
 
@@ -244,25 +280,86 @@ namespace UwUTerm
         /// features that turns into a pile of dead keys, so they are dropped once every
         /// Bind above has run - anything still unclaimed by now is genuinely gone.
         /// </summary>
-        private void PruneOrphanedSettings()
+        private void PruneOrphanedSettings(ConfigFile file, string label)
         {
+            if (file == null) return;
             try
             {
                 var property = AccessTools.Property(typeof(ConfigFile), "OrphanedEntries");
-                if (!(property?.GetValue(Config) is System.Collections.IDictionary orphans)) return;
+                if (!(property?.GetValue(file) is System.Collections.IDictionary orphans)) return;
                 if (orphans.Count == 0) return;
 
                 var names = new System.Collections.Generic.List<string>();
                 foreach (object key in orphans.Keys) names.Add(key.ToString());
 
                 orphans.Clear();
-                Config.Save();
-                Log.LogInfo("dropped orphaned settings: " + string.Join(", ", names.ToArray()));
+                file.Save();
+                Log.LogInfo($"dropped orphaned {label}: " + string.Join(", ", names.ToArray()));
             }
             catch (System.Exception e)
             {
-                Log.LogWarning("could not prune orphaned settings: " + e.Message);
+                Log.LogWarning($"could not prune orphaned {label}: " + e.Message);
             }
+        }
+
+        /// <summary>
+        /// Hotkeys live in their own file: there are enough of them now that mixing them
+        /// with colours and toggles makes both harder to find, and rebinding is the kind of
+        /// thing people do without wanting to read past everything else.
+        /// </summary>
+        private void BindHotkeys()
+        {
+            Hotkeys = new ConfigFile(
+                System.IO.Path.Combine(Paths.ConfigPath, Guid + ".hotkeys.cfg"), true, Info.Metadata);
+
+            EnableSnapHotkeys = Hotkeys.Bind("Windows", "EnableSnapHotkeys", true,
+                "Snap the focused window from the keyboard.");
+
+            SnapLeft = Hotkeys.Bind("Windows", "SnapLeft",
+                new KeyboardShortcut(KeyCode.LeftArrow, KeyCode.LeftControl, KeyCode.LeftAlt, KeyCode.LeftShift),
+                "Left half of the desktop.");
+
+            SnapRight = Hotkeys.Bind("Windows", "SnapRight",
+                new KeyboardShortcut(KeyCode.RightArrow, KeyCode.LeftControl, KeyCode.LeftAlt, KeyCode.LeftShift),
+                "Right half of the desktop.");
+
+            SnapFull = Hotkeys.Bind("Windows", "SnapFull",
+                new KeyboardShortcut(KeyCode.UpArrow, KeyCode.LeftControl, KeyCode.LeftAlt, KeyCode.LeftShift),
+                "Fill the desktop.");
+
+            SnapQuadrant1 = Hotkeys.Bind("Windows", "SnapQuadrant1",
+                new KeyboardShortcut(KeyCode.Alpha1, KeyCode.LeftControl, KeyCode.LeftAlt, KeyCode.LeftShift),
+                "Quadrants are numbered as on an x-y axis, counter-clockwise from top right.\n" +
+                "Quadrant 1: top right.");
+
+            SnapQuadrant2 = Hotkeys.Bind("Windows", "SnapQuadrant2",
+                new KeyboardShortcut(KeyCode.Alpha2, KeyCode.LeftControl, KeyCode.LeftAlt, KeyCode.LeftShift),
+                "Quadrant 2: top left.");
+
+            SnapQuadrant3 = Hotkeys.Bind("Windows", "SnapQuadrant3",
+                new KeyboardShortcut(KeyCode.Alpha3, KeyCode.LeftControl, KeyCode.LeftAlt, KeyCode.LeftShift),
+                "Quadrant 3: bottom left.");
+
+            SnapQuadrant4 = Hotkeys.Bind("Windows", "SnapQuadrant4",
+                new KeyboardShortcut(KeyCode.Alpha4, KeyCode.LeftControl, KeyCode.LeftAlt, KeyCode.LeftShift),
+                "Quadrant 4: bottom right.");
+
+            SearchScrollback = Hotkeys.Bind("Terminal", "SearchScrollback",
+                new KeyboardShortcut(KeyCode.F, KeyCode.LeftControl),
+                "Search the terminal scrollback. Pressing it again steps to the next match.\n" +
+                "\n" +
+                "The readline editing keys - Ctrl+A/E/K/U/W, Alt+B/F and the rest - are not\n" +
+                "rebindable. They are standard across every shell and terminal, and moving\n" +
+                "them tends to cause more confusion than it solves. Only these three are\n" +
+                "here, because they are the ones that collide with existing habits.");
+
+            HistorySearchBackward = Hotkeys.Bind("Terminal", "HistorySearchBackward",
+                new KeyboardShortcut(KeyCode.R, KeyCode.LeftControl),
+                "Incremental history search backwards, and step to the next older match.");
+
+            HistorySearchForward = Hotkeys.Bind("Terminal", "HistorySearchForward",
+                new KeyboardShortcut(KeyCode.S, KeyCode.LeftControl),
+                "Search history forwards again.");
         }
 
         private void Register(string feature, System.Action patch)
@@ -296,6 +393,11 @@ namespace UwUTerm
             try
             {
                 System.DateTime stamp = System.IO.File.GetLastWriteTimeUtc(Config.ConfigFilePath);
+                if (Hotkeys != null)
+                {
+                    System.DateTime hotkeyStamp = System.IO.File.GetLastWriteTimeUtc(Hotkeys.ConfigFilePath);
+                    if (hotkeyStamp > stamp) stamp = hotkeyStamp;
+                }
                 if (stamp == _configStamp) return;
 
                 bool first = _configStamp == default(System.DateTime);
@@ -303,6 +405,7 @@ namespace UwUTerm
                 if (first) return;
 
                 Config.Reload();
+                Hotkeys?.Reload();
                 Log.LogInfo("config reloaded");
             }
             catch (System.Exception e)

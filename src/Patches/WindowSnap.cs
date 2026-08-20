@@ -4,6 +4,7 @@ using HarmonyLib;
 using UI.Dialogs;
 using UnityEngine;
 using UnityEngine.EventSystems;
+using UwUTerm.Ui;
 using UnityEngine.UI;
 using TMPro;
 
@@ -36,6 +37,11 @@ namespace UwUTerm.Patches
         private static uDialog _modifierDrag;
         private static Vector2 _grabOffset;
 
+        private static Ghost _ghost;
+
+        private static float _dragStarted;
+        private static int _dragFrames;
+
         private static readonly Dictionary<uDialog, Vector2> PreSnapSize = new Dictionary<uDialog, Vector2>();
         private static readonly List<RaycastResult> Hits = new List<RaycastResult>();
 
@@ -56,20 +62,59 @@ namespace UwUTerm.Patches
                 }
                 harmony.Patch(target, postfix: onMove);
             }
+
+            MethodInfo focus = AccessTools.Method(typeof(uDialog), "Focus");
+            if (focus != null)
+                harmony.Patch(focus, prefix: new HarmonyMethod(
+                    typeof(WindowSnap).GetMethod(nameof(SkipRedundantFocus),
+                        BindingFlags.Static | BindingFlags.NonPublic)));
+            else
+                UwUTermPlugin.Log.LogWarning("snap: uDialog.Focus not found");
+        }
+
+        /// <summary>
+        /// uDialog.DragUpdate calls Focus() on every frame of a drag, and Focus() does
+        /// SetAsLastSibling() plus a taskbar update, a context-menu clear and an input
+        /// re-activation. Reordering siblings dirties the entire canvas, so each frame of a
+        /// drag rebuilds the batches for every window, the desktop and the taskbar - which
+        /// is why the cost grows with the number of windows open.
+        ///
+        /// The window is already frontmost after the first frame, so the rest are pure
+        /// waste. Only redundant calls during a drag are skipped: a real focus change, or a
+        /// click on an unfocused window, still runs the original untouched.
+        /// </summary>
+        private static bool SkipRedundantFocus(uDialog __instance)
+        {
+            if (!UwUTermPlugin.SkipDragFocus.Value) return true;
+            if (!ReferenceEquals(_moving, __instance) && !ReferenceEquals(_modifierDrag, __instance)) return true;
+
+            return !__instance.IsFocused();
         }
 
         internal static void Tick()
         {
+            Hotkeys();
+
             if (!UwUTermPlugin.EnableWindowSnap.Value && !UwUTermPlugin.EnableModifierDrag.Value) return;
 
             if (Input.GetMouseButtonUp(0))
             {
+                _ghost?.Hide();
+                EndDragTiming();
                 uDialog released = _modifierDrag ?? _moving;
                 _modifierDrag = null;
                 _moving = null;
                 _loggedThisDrag = false;
                 if (released != null && UwUTermPlugin.EnableWindowSnap.Value) Snap(released);
                 return;
+            }
+
+            uDialog dragging = _modifierDrag ?? _moving;
+            Preview(dragging);
+            if (dragging != null)
+            {
+                if (_dragFrames == 0) _dragStarted = Time.realtimeSinceStartup;
+                _dragFrames++;
             }
 
             if (!UwUTermPlugin.EnableModifierDrag.Value) return;
@@ -146,6 +191,95 @@ namespace UwUTerm.Patches
             Place(rt, parent, current.size, pointer + _grabOffset);
         }
 
+        private static void EndDragTiming()
+        {
+            if (_dragFrames <= 0) return;
+
+            if (UwUTermPlugin.SnapDebug.Value)
+            {
+                float seconds = Time.realtimeSinceStartup - _dragStarted;
+                Debug($"drag: {_dragFrames} frames in {seconds:F2}s, {_dragFrames / Mathf.Max(0.0001f, seconds):F0} fps");
+            }
+            _dragFrames = 0;
+        }
+
+        /// <summary>Track the pointer during a drag and outline where a release would put
+        /// the window.</summary>
+        private static void Preview(uDialog dragged)
+        {
+            if (!UwUTermPlugin.EnableWindowSnap.Value || !UwUTermPlugin.SnapPreview.Value)
+            {
+                _ghost?.Hide();
+                return;
+            }
+
+            if (dragged == null) { _ghost?.Hide(); return; }
+
+            RectTransform parent = dragged.RectTransform.parent as RectTransform;
+            if (parent == null) { _ghost?.Hide(); return; }
+
+            if (!TryGetPointer(parent, out Vector2 pointer)) { _ghost?.Hide(); return; }
+
+            Rect area = parent.rect;
+            Zone zone = ZoneFor(area, pointer);
+            if (zone == Zone.None) { _ghost?.Hide(); return; }
+
+            if (_ghost == null || !_ghost.Owns(parent))
+            {
+                _ghost?.Destroy();
+                _ghost = Ghost.Create(parent);
+            }
+
+            Rect target = TargetFor(WorkArea(area), zone);
+            _ghost.Show(parent, target.size, target.center);
+        }
+
+        // ---- keyboard ----------------------------------------------------------------
+
+        /// <summary>
+        /// Ctrl+Alt+Shift plus a key snaps the focused window. Quadrants follow the maths
+        /// convention - 1 top right, counter-clockwise from there - rather than reading
+        /// order, so 1..4 map to the same corners they do on an x-y axis.
+        ///
+        /// Read from Input rather than the terminal's key handler because it has to work
+        /// whatever window is focused, including ones that never see a keystroke of ours.
+        /// </summary>
+        private static void Hotkeys()
+        {
+            if (!UwUTermPlugin.EnableWindowSnap.Value || !UwUTermPlugin.EnableSnapHotkeys.Value) return;
+
+            Zone zone = HotkeyZone();
+            if (zone == Zone.None) return;
+
+            uDialog focused = Focused();
+            if (focused == null) return;
+
+            Debug($"hotkey: {zone} -> {focused.name}");
+            SnapTo(focused, zone);
+        }
+
+        private static Zone HotkeyZone()
+        {
+            if (UwUTermPlugin.SnapLeft.Value.IsDown()) return Zone.Left;
+            if (UwUTermPlugin.SnapRight.Value.IsDown()) return Zone.Right;
+            if (UwUTermPlugin.SnapFull.Value.IsDown()) return Zone.Full;
+            if (UwUTermPlugin.SnapQuadrant1.Value.IsDown()) return Zone.TopRight;
+            if (UwUTermPlugin.SnapQuadrant2.Value.IsDown()) return Zone.TopLeft;
+            if (UwUTermPlugin.SnapQuadrant3.Value.IsDown()) return Zone.BottomLeft;
+            if (UwUTermPlugin.SnapQuadrant4.Value.IsDown()) return Zone.BottomRight;
+            return Zone.None;
+        }
+
+        /// <summary>The frontmost window: uDialog orders by sibling index and IsFocused
+        /// reports whether it is the last active one.</summary>
+        private static uDialog Focused()
+        {
+            foreach (uDialog dialog in Object.FindObjectsOfType<uDialog>())
+                if (dialog != null && dialog.isVisible && dialog.IsFocused()) return dialog;
+
+            return null;
+        }
+
         // ---- snapping --------------------------------------------------------------
 
         private static void Snap(uDialog dialog)
@@ -165,9 +299,18 @@ namespace UwUTerm.Patches
             Debug($"release: area={area} pointer={pointer} zone={zone}");
             if (zone == Zone.None) return;
 
+            SnapTo(dialog, zone);
+        }
+
+        private static void SnapTo(uDialog dialog, Zone zone)
+        {
+            RectTransform rt = dialog.RectTransform;
+            RectTransform parent = rt.parent as RectTransform;
+            if (parent == null) return;
+
             if (!PreSnapSize.ContainsKey(dialog)) PreSnapSize[dialog] = rt.sizeDelta;
 
-            Rect target = TargetFor(WorkArea(area), zone);
+            Rect target = TargetFor(WorkArea(parent.rect), zone);
             Place(rt, parent, target.size, target.center, refreshText: true);
         }
 

@@ -69,7 +69,9 @@ namespace UwUTerm.Patches
             if (remote && !string.IsNullOrEmpty(UwUTermPlugin.PromptTemplateRemote.Value))
                 template = UwUTermPlugin.PromptTemplateRemote.Value;
 
-            string rendered = Render(template, m, terminal, remote) + m.Groups["tail"].Value;
+            // The server's own trailing space is deliberately dropped: the template is the
+            // whole prompt, so trailing space is {sp}'s job. Appending both gave two.
+            string rendered = Render(template, m, terminal, remote);
             LastRendered[__instance] = rendered;
             rawText = rendered;
         }

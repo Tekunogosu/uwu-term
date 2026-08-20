@@ -20,6 +20,7 @@ namespace UwUTerm.Patches
         private static void Prefix(uDialog __instance)
         {
             Search.Dismiss(__instance);
+            HistorySearch.Dismiss(__instance);
             MailHeaders.Dismiss(__instance);
         }
     }

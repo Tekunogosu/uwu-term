@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using BepInEx.Configuration;
 using HarmonyLib;
 using TerminalPoolSystem;
 using UnityEngine;
@@ -55,6 +56,18 @@ namespace UwUTerm.Patches
             // A running script polling for raw keys wants the keystroke untouched.
             if (__instance.IsPollingScriptInputEnabled() || __instance.pendingAnyKey) return true;
 
+            // Ctrl+Alt+Shift belongs to the window hotkeys; without this the terminal would
+            // also move its caret on the arrow keys they use.
+            if (e.control && e.alt && e.shift) { e.Use(); return false; }
+
+            // An incremental history search takes keys first, and hands back the ones that
+            // end it so the terminal still acts on them.
+            if (HistorySearch.IsActive(__instance))
+            {
+                if (HistorySearch.HandleKey(__instance, adapter, e)) { e.Use(); return false; }
+                return true;
+            }
+
             // An open search owns the keyboard until it is closed.
             if (Search.IsActive(__instance))
             {
@@ -72,6 +85,19 @@ namespace UwUTerm.Patches
                 KillRing.LastWasYank = false;
             }
             KillRing.ContinuingRun = wasKill;
+
+            if (Matches(UwUTermPlugin.SearchScrollback.Value, e))
+            {
+                Search.Open(__instance, adapter); e.Use(); return false;
+            }
+            if (Matches(UwUTermPlugin.HistorySearchBackward.Value, e))
+            {
+                HistorySearch.Open(__instance, adapter, backwards: true); e.Use(); return false;
+            }
+            if (Matches(UwUTermPlugin.HistorySearchForward.Value, e))
+            {
+                HistorySearch.Open(__instance, adapter, backwards: false); e.Use(); return false;
+            }
 
             bool ctrl = e.control && !e.alt && !e.shift && !e.command;
             bool alt = e.alt && !e.control && !e.shift && !e.command;
@@ -94,9 +120,7 @@ namespace UwUTerm.Patches
                 case KeyCode.A: return Move(a, _ => 0);
                 case KeyCode.E: return Move(a, s => s.Length);
                 case KeyCode.B: return Nudge(a, -1);
-                // Ctrl+F is search, as in every other program with a find box. The right
-                // arrow already covers forward-char.
-                case KeyCode.F: Search.Open(terminal, a); return true;
+                case KeyCode.F: return Nudge(a, +1);
                 case KeyCode.LeftArrow: return MoveWord(a, back: true);
                 case KeyCode.RightArrow: return MoveWord(a, back: false);
 
@@ -371,6 +395,12 @@ namespace UwUTerm.Patches
         private static string CurrentLine(TerminalListAdapter a) =>
             a.Data.Count == 0 ? null : a.Data[a.Data.Count - 1].line;
 
+        internal static bool ReadInput(TerminalListAdapter a, out string input, out int point) =>
+            Read(a, out input, out point);
+
+        internal static void WriteInput(TerminalListAdapter a, string input, int point) =>
+            Write(a, input, point);
+
         /// <summary>The editable text and the caret's position within it. The caret sits
         /// *after* charIndexInput, so point is an insertion index, 0..input.Length.</summary>
         private static bool Read(TerminalListAdapter a, out string input, out int point)
@@ -438,6 +468,27 @@ namespace UwUTerm.Patches
             int p = Mathf.Clamp(from, 0, s.Length);
             while (p > 0 && !IsWordChar(s[p - 1])) p--;
             return p;
+        }
+
+        /// <summary>
+        /// Match a configured shortcut against an IMGUI event rather than polling Input:
+        /// OnGUI can run several times in a frame, and GetKeyDown would be true for each of
+        /// them, firing one keystroke twice. Event carries no left/right distinction, so the
+        /// shortcut's modifiers are normalised to the three flags it does have.
+        /// </summary>
+        internal static bool Matches(KeyboardShortcut shortcut, Event e)
+        {
+            if (e.keyCode == KeyCode.None || e.keyCode != shortcut.MainKey) return false;
+
+            bool ctrl = false, alt = false, shift = false;
+            foreach (KeyCode modifier in shortcut.Modifiers)
+            {
+                if (modifier == KeyCode.LeftControl || modifier == KeyCode.RightControl) ctrl = true;
+                else if (modifier == KeyCode.LeftAlt || modifier == KeyCode.RightAlt) alt = true;
+                else if (modifier == KeyCode.LeftShift || modifier == KeyCode.RightShift) shift = true;
+            }
+
+            return e.control == ctrl && e.alt == alt && e.shift == shift;
         }
 
         private static bool IsModifier(KeyCode key) =>

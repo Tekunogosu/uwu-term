@@ -4,6 +4,8 @@ using HarmonyLib;
 using UI.Dialogs;
 using UnityEngine;
 using UnityEngine.EventSystems;
+using UnityEngine.UI;
+using TMPro;
 
 namespace UwUTerm.Patches
 {
@@ -166,7 +168,7 @@ namespace UwUTerm.Patches
             if (!PreSnapSize.ContainsKey(dialog)) PreSnapSize[dialog] = rt.sizeDelta;
 
             Rect target = TargetFor(WorkArea(area), zone);
-            Place(rt, parent, target.size, target.center);
+            Place(rt, parent, target.size, target.center, refreshText: true);
         }
 
         /// <summary>
@@ -188,7 +190,7 @@ namespace UwUTerm.Patches
 
             if (!TryGetPointer(parent, out Vector2 pointer))
             {
-                Place(rt, parent, original, current.center);
+                Place(rt, parent, original, current.center, refreshText: true);
                 return;
             }
 
@@ -197,7 +199,7 @@ namespace UwUTerm.Patches
 
             float left = pointer.x - grip * original.x;
             float top = current.yMax;
-            Place(rt, parent, original, new Vector2(left + original.x / 2f, top - original.y / 2f));
+            Place(rt, parent, original, new Vector2(left + original.x / 2f, top - original.y / 2f), refreshText: true);
         }
 
         // ---- geometry --------------------------------------------------------------
@@ -214,7 +216,7 @@ namespace UwUTerm.Patches
         }
 
         /// <summary>Size and place a window, always leaving it fully on the desktop.</summary>
-        private static void Place(RectTransform rt, RectTransform parent, Vector2 size, Vector2 centre)
+        private static void Place(RectTransform rt, RectTransform parent, Vector2 size, Vector2 centre, bool refreshText = false)
         {
             Rect area = parent.rect;
             centre.x = (size.x >= area.width)
@@ -230,6 +232,27 @@ namespace UwUTerm.Patches
             rt.sizeDelta = size;
             Vector3 world = parent.TransformPoint(new Vector3(centre.x, centre.y, 0f));
             rt.position = new Vector3(world.x, world.y, rt.position.z);
+
+            if (refreshText) RefreshText(rt);
+        }
+
+        /// <summary>
+        /// A snap changes a window's size in one jump, and TMP rebuilds its mesh from the
+        /// new layout - discarding any per-vertex colouring a component had applied on top,
+        /// which is why the mail client loses its address highlighting until you hover a
+        /// word and it re-tints. Regenerating the text raises TMP's TEXT_CHANGED, giving
+        /// those components the chance to reapply. A drag does not need this: it resizes a
+        /// little each frame, so the effects never fall far behind.
+        /// </summary>
+        private static void RefreshText(RectTransform root)
+        {
+            LayoutRebuilder.ForceRebuildLayoutImmediate(root);
+
+            foreach (TMP_Text text in root.GetComponentsInChildren<TMP_Text>(true))
+            {
+                text.SetAllDirty();
+                text.ForceMeshUpdate(true, true);
+            }
         }
 
         private static uDialog DialogUnderPointer()

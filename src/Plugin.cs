@@ -16,6 +16,18 @@ namespace UwUTerm
         internal static ManualLogSource Log;
         internal static ConfigEntry<bool> EnableReadline;
         internal static ConfigEntry<int> KillRingSize;
+        internal static ConfigEntry<bool> MailHeaders;
+        internal static ConfigEntry<bool> MailCards;
+        internal static ConfigEntry<bool> MailDebug;
+        internal static ConfigEntry<string> SearchMatchTextColor;
+        internal static ConfigEntry<string> SearchMatchHighlightColor;
+        internal static ConfigEntry<string> SearchActiveTextColor;
+        internal static ConfigEntry<string> SearchActiveHighlightColor;
+        internal static ConfigEntry<bool> PersistHistory;
+        internal static ConfigEntry<int> HistoryLimit;
+        internal static ConfigEntry<bool> HistoryIgnoreSpacePrefix;
+        internal static ConfigEntry<bool> HistoryIgnoreDuplicates;
+        internal static ConfigEntry<string> HistoryIgnorePattern;
         internal static ConfigEntry<bool> EnableLsColumns;
         internal static ConfigEntry<bool> ColorizePrompt;
         internal static ConfigEntry<string> PromptTemplate;
@@ -64,6 +76,61 @@ namespace UwUTerm
 
             KillRingSize = Config.Bind("Input", "KillRingSize", 10,
                 "How many kills to remember for Alt+Y to cycle through.");
+            MailHeaders = Config.Bind("Mail", "ShowHeaderLink", true,
+                "Add a \"headers\" link to each message in the mail client, showing sender,\n" +
+                "recipient, direction and the rest of what the game stores about it.");
+
+            MailCards = Config.Bind("Mail", "CardStyle", true,
+                "Draw each message in a thread as its own panel, so replies are separated\n" +
+                "instead of running together.");
+
+            MailDebug = Config.Bind("Diagnostics", "MailDebug", true,
+                "Log when a mail is opened and how many message rows were found.");
+
+            SearchMatchTextColor = Config.Bind("Search", "MatchTextColor", "#7fb4ff",
+                "Text colour for matches other than the one you are on.");
+
+            SearchActiveTextColor = Config.Bind("Search", "ActiveTextColor", "#ffd75f",
+                "Text colour for the match you are currently on.");
+
+            SearchMatchHighlightColor = Config.Bind("Search", "MatchHighlightColor", "",
+                "Optional background behind matches other than the active one. RGBA hex,\n" +
+                "blank for none.\n" +
+                "\n" +
+                "TMP draws a background as a filled quad OVER the glyphs - it is what the\n" +
+                "game uses to censor addresses in streaming mode - so a solid colour hides\n" +
+                "the very text you searched for. Keep the alpha low if you use one, around\n" +
+                "#7fb4ff40, and check it against your theme.");
+
+            SearchActiveHighlightColor = Config.Bind("Search", "ActiveHighlightColor", "",
+                "Optional background behind the active match. Same caveat as\n" +
+                "MatchHighlightColor - keep the alpha low.");
+
+            PersistHistory = Config.Bind("History", "PersistHistory", true,
+                "Keep command history across terminals and across sessions, in\n" +
+                "BepInEx/config/" + Guid + ".history\n" +
+                "\n" +
+                "All open terminals share one history, so a command typed in one is\n" +
+                "immediately available with Up in another.\n" +
+                "\n" +
+                "The file is plain text and holds whatever you typed, in-game passwords\n" +
+                "included. Nothing in the game can read it. IgnoreSpacePrefix and\n" +
+                "IgnorePattern below can keep chosen commands out of it if you want that.");
+
+            HistoryLimit = Config.Bind("History", "HistoryLimit", 500,
+                "How many commands to keep. Oldest are dropped first.");
+
+            HistoryIgnoreSpacePrefix = Config.Bind("History", "IgnoreSpacePrefix", false,
+                "Commands typed with a leading space are not recorded (bash's ignorespace).\n" +
+                "Off by default - turn it on if you want a way to skip individual commands.");
+
+            HistoryIgnoreDuplicates = Config.Bind("History", "IgnoreDuplicates", true,
+                "Do not record a command identical to the one before it (bash's ignoredups).");
+
+            HistoryIgnorePattern = Config.Bind("History", "IgnorePattern", "",
+                "Regex - commands matching it are never recorded. Blank disables the check.\n" +
+                "Example, to keep every ssh invocation out of the file:  ^\\s*ssh\\s");
+
             ColorizePrompt = Config.Bind("Prompt", "ColorizePrompt", true,
                 "Replace the server's prompt with a custom one.");
 
@@ -156,13 +223,59 @@ namespace UwUTerm
                 "working out what the server actually sends.");
 
             _harmony = new Harmony(Guid);
-            _harmony.PatchAll(typeof(Readline));
-            _harmony.PatchAll(typeof(Output));
-            _harmony.PatchAll(typeof(Prompt));
-            WindowSnap.Apply(_harmony);
+
+            // Registered one at a time: a patch that fails to bind - a renamed method after
+            // a game update, say - must not take the rest of the plugin down with it.
+            Register("readline", () => _harmony.PatchAll(typeof(Readline)));
+            Register("output", () => _harmony.PatchAll(typeof(Output)));
+            Register("prompt", () => _harmony.PatchAll(typeof(Prompt)));
+            Register("mail", () => _harmony.PatchAll(typeof(MailHeaders)));
+            Register("history", () => History.Apply(_harmony));
+            Register("windows", () => WindowSnap.Apply(_harmony));
+            Register("window-close", () => _harmony.PatchAll(typeof(WindowClose)));
+            PruneOrphanedSettings();
             Log.LogInfo($"{Name} {Version} ready.");
         }
 
+
+        /// <summary>
+        /// BepInEx keeps settings it reads from the file but nothing binds, so that a
+        /// temporarily disabled plugin does not lose them. Across renames and removed
+        /// features that turns into a pile of dead keys, so they are dropped once every
+        /// Bind above has run - anything still unclaimed by now is genuinely gone.
+        /// </summary>
+        private void PruneOrphanedSettings()
+        {
+            try
+            {
+                var property = AccessTools.Property(typeof(ConfigFile), "OrphanedEntries");
+                if (!(property?.GetValue(Config) is System.Collections.IDictionary orphans)) return;
+                if (orphans.Count == 0) return;
+
+                var names = new System.Collections.Generic.List<string>();
+                foreach (object key in orphans.Keys) names.Add(key.ToString());
+
+                orphans.Clear();
+                Config.Save();
+                Log.LogInfo("dropped orphaned settings: " + string.Join(", ", names.ToArray()));
+            }
+            catch (System.Exception e)
+            {
+                Log.LogWarning("could not prune orphaned settings: " + e.Message);
+            }
+        }
+
+        private void Register(string feature, System.Action patch)
+        {
+            try
+            {
+                patch();
+            }
+            catch (System.Exception e)
+            {
+                Log.LogError($"{feature} could not be patched, that feature is off: {e.Message}");
+            }
+        }
 
         private void Update()
         {

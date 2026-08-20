@@ -55,14 +55,23 @@ namespace UwUTerm.Patches
             // A running script polling for raw keys wants the keystroke untouched.
             if (__instance.IsPollingScriptInputEnabled() || __instance.pendingAnyKey) return true;
 
+            // An open search owns the keyboard until it is closed.
+            if (Search.IsActive(__instance))
+            {
+                if (Search.HandleKey(__instance, adapter, e)) { e.Use(); return false; }
+                return true;
+            }
+
             // Any key that is not a bare modifier breaks a run of kills or yanks. Modifiers
             // arrive as their own KeyDown, so skipping them is what lets C-y M-y work at all.
             bool wasYank = KillRing.LastWasYank;
+            bool wasKill = KillRing.LastWasKill;
             if (!IsModifier(e.keyCode))
             {
                 KillRing.LastWasKill = false;
                 KillRing.LastWasYank = false;
             }
+            KillRing.ContinuingRun = wasKill;
 
             bool ctrl = e.control && !e.alt && !e.shift && !e.command;
             bool alt = e.alt && !e.control && !e.shift && !e.command;
@@ -85,7 +94,9 @@ namespace UwUTerm.Patches
                 case KeyCode.A: return Move(a, _ => 0);
                 case KeyCode.E: return Move(a, s => s.Length);
                 case KeyCode.B: return Nudge(a, -1);
-                case KeyCode.F: return Nudge(a, +1);
+                // Ctrl+F is search, as in every other program with a find box. The right
+                // arrow already covers forward-char.
+                case KeyCode.F: Search.Open(terminal, a); return true;
                 case KeyCode.LeftArrow: return MoveWord(a, back: true);
                 case KeyCode.RightArrow: return MoveWord(a, back: false);
 
@@ -113,6 +124,8 @@ namespace UwUTerm.Patches
             {
                 case KeyCode.B: return MoveWord(a, back: true);
                 case KeyCode.F: return MoveWord(a, back: false);
+                case KeyCode.LeftArrow: return MoveWord(a, back: true);
+                case KeyCode.RightArrow: return MoveWord(a, back: false);
                 case KeyCode.D: return KillWord(terminal, a, back: false, whitespaceOnly: false);
                 case KeyCode.Backspace: return KillWord(terminal, a, back: true, whitespaceOnly: false);
                 case KeyCode.Y: return YankPop(terminal, a, wasYank);

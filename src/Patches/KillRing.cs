@@ -24,11 +24,19 @@ namespace UwUTerm.Patches
         internal static bool LastWasKill;
         internal static bool LastWasYank;
 
+        /// <summary>
+        /// Whether the key being handled right now follows a kill. The dispatcher clears
+        /// LastWasKill before running a command - it has to, so that non-kill keys break the
+        /// run - which means Kill() can no longer read it to decide whether to accumulate.
+        /// The dispatcher stashes the previous value here instead.
+        /// </summary>
+        internal static bool ContinuingRun;
+
         internal static void Kill(string text, bool backward)
         {
             if (string.IsNullOrEmpty(text)) return;
 
-            if (LastWasKill && Ring.Count > 0)
+            if (ContinuingRun && Ring.Count > 0)
             {
                 Ring[0] = backward ? text + Ring[0] : Ring[0] + text;
             }

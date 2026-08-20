@@ -1,0 +1,16 @@
+bin/
+obj/
+
+# Decompiled game sources and the extracted in-game manual. Reference only -
+# this is the game's own copyrighted content and must never be committed.
+refs/
+
+# Personal game path, see README
+Local.props
+
+# IDE
+.idea/
+.vs/
+*.user
+*.suo
+*.DotSettings.user

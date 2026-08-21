@@ -448,8 +448,18 @@ namespace UwUTerm.Patches
             return Zone.None;
         }
 
+        /// <summary>
+        /// The part of the desktop a window may use.
+        ///
+        /// With the game's own two bars this is its maximise inset - 99% by 92%, centred,
+        /// because a bar takes the same strip off the top as off the bottom. With one bar
+        /// along the top the space is neither that size nor centred, so WindowArea works it
+        /// out from the bar itself and both paths agree on where "filled" is.
+        /// </summary>
         private static Rect WorkArea(Rect area)
         {
+            if (Ui.DesktopBar.Active) return WindowArea.Area(area);
+
             float w = area.width * WorkAreaX;
             float h = area.height * WorkAreaY;
             return new Rect(area.center.x - w / 2f, area.center.y - h / 2f, w, h);

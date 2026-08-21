@@ -29,6 +29,7 @@ namespace UwUTerm
         internal static ConfigEntry<string> CursorStyle;
         internal static ConfigEntry<bool> CursorBlink;
         internal static ConfigEntry<bool> ScreenDebug;
+        internal static ConfigEntry<bool> DumpDesktop;
         internal static ConfigEntry<bool> MenuComplete;
         internal static ConfigEntry<string> CompletionSelectedColor;
         internal static ConfigEntry<bool> CompletionDebug;
@@ -56,6 +57,8 @@ namespace UwUTerm
         internal static ConfigEntry<string> PromptSym;
         internal static ConfigEntry<string> PromptSymRemote;
         internal static ConfigEntry<bool> NormalizeLsFlags;
+        internal static ConfigEntry<bool> SingleTopBar;
+        internal static ConfigEntry<float> BarSpacing;
         internal static ConfigEntry<bool> EnableWindowSnap;
         internal static ConfigEntry<bool> SnapTopMaximizes;
         internal static ConfigEntry<bool> SnapPreview;
@@ -362,6 +365,12 @@ namespace UwUTerm
                 "Overlays Sym when remote - only the roles listed here change.");
 
 
+            DumpDesktop = Config.Bind("Diagnostics", "DumpDesktop", false,
+                "Write the desktop's UI hierarchy to the log once - what is parented where,\n" +
+                "how each piece is anchored, and which components it carries. Anchors and\n" +
+                "layout live in the scene rather than in code, so this is the only way to read\n" +
+                "them.");
+
             ScreenDebug = Config.Bind("Diagnostics", "ScreenDebug", false,
                 "Log when the grid screen takes over a terminal, and the grid size it chose.");
 
@@ -375,6 +384,23 @@ namespace UwUTerm
             NormalizeLsFlags = Config.Bind("Output", "NormalizeLsFlags", true,
                 "Accept ls flags in any order: -al, -a -l and -l -a are rewritten to the " +
                 "-la the server expects.");
+            SingleTopBar = Config.Bind("Desktop", "SingleTopBar", true,
+                "Put everything in one bar along the top.\n" +
+                "\n" +
+                "Open windows move from the taskbar at the bottom into the top bar, the clock\n" +
+                "joins the notification icons and user name in the corner, and the strip the\n" +
+                "bottom bar was using goes back to the desktop.\n" +
+                "\n" +
+                "Windows snap and maximise to whatever is left, so they sit under the bar\n" +
+                "rather than behind it.");
+
+            BarSpacing = Config.Bind("Desktop", "BarSpacing", 12f,
+                "Pixels between the things in the top bar. The gap before the window list is\n" +
+                "twice this, since it separates the two groups rather than two neighbours.\n" +
+                "\n" +
+                "Lower it to bring the window list closer to your name. What is left is the\n" +
+                "start menu, your icon and your name, which take the room they take.");
+
             EnableWindowSnap = Config.Bind("Windows", "EnableWindowSnap", true,
                 "Drag a window to an edge to snap it: side for half, corner for a quarter.");
             SkipDragFocus = Config.Bind("Windows", "SkipDragFocus", true,
@@ -420,6 +446,8 @@ namespace UwUTerm
             Register("completion", () => Completion.Apply(_harmony));
             Register("completion-request", () => _harmony.PatchAll(typeof(CompletionRequest)));
             Register("windows", () => WindowSnap.Apply(_harmony));
+            Register("window-area", () => WindowArea.Apply(_harmony));
+            Register("clock", () => DesktopClock.Apply(_harmony));
             Register("terminal-font", () => TerminalFont.Apply(_harmony));
             Register("screen", () => ScreenTakeover.Apply(_harmony));
             Register("screen-clipboard", () => ScreenClipboard.Apply(_harmony));
@@ -536,6 +564,8 @@ namespace UwUTerm
             Patches.WindowSnap.Tick();
             Patches.ScreenTakeover.Tick();
             Ui.PrimaryPaste.Tick();
+            Ui.DesktopReport.Tick();
+            Ui.DesktopBar.Tick();
             PollConfigFile();
         }
 

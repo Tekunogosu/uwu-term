@@ -117,7 +117,7 @@ namespace UwUTerm.Patches
 
         internal static void Tick()
         {
-            if (!UwUTermPlugin.EnableScreen.Value)
+            if (!UwUTermPlugin.FeatureTerminal.Value)
             {
                 if (_running) { TearDown(); _running = false; }
                 return;

@@ -16,29 +16,27 @@ namespace UwUTerm
 
         internal static ManualLogSource Log;
         internal static ConfigFile Hotkeys;
-        internal static ConfigEntry<bool> EnableReadline;
+
+        internal static ConfigEntry<bool> FeatureTerminal;
+        internal static ConfigEntry<bool> FeatureEditor;
+        internal static ConfigEntry<bool> FeatureDesktop;
+        internal static ConfigEntry<bool> FeatureMail;
+        internal static ConfigEntry<bool> FeatureWindows;
+
         internal static ConfigEntry<int> KillRingSize;
         internal static ConfigEntry<int> PanelBackgroundAlpha;
         internal static ConfigEntry<int> CompletionBackgroundAlpha;
-        internal static ConfigEntry<string> TerminalFontName;
-        internal static ConfigEntry<float> TerminalFontSize;
-        internal static ConfigEntry<bool> TerminalFontFallback;
-        internal static ConfigEntry<bool> ListFonts;
-        internal static ConfigEntry<bool> EnableScreen;
         internal static ConfigEntry<float> ScreenPadding;
         internal static ConfigEntry<string> CursorStyle;
         internal static ConfigEntry<bool> CursorBlink;
-        internal static ConfigEntry<bool> ScreenDebug;
-        internal static ConfigEntry<bool> DumpDesktop;
-        internal static ConfigEntry<bool> MenuComplete;
+        internal static ConfigEntry<string> TerminalFontName;
+        internal static ConfigEntry<float> TerminalFontSize;
+        internal static ConfigEntry<bool> TerminalFontFallback;
         internal static ConfigEntry<string> CompletionSelectedColor;
-        internal static ConfigEntry<bool> CompletionDebug;
         internal static ConfigEntry<bool> FilterCommandNames;
         internal static ConfigEntry<string> KnownCommands;
         internal static ConfigEntry<string> IgnoreArgumentExtensions;
-        internal static ConfigEntry<bool> MailHeaders;
         internal static ConfigEntry<bool> MailCards;
-        internal static ConfigEntry<bool> MailDebug;
         internal static ConfigEntry<string> SearchMatchTextColor;
         internal static ConfigEntry<string> SearchMatchHighlightColor;
         internal static ConfigEntry<string> SearchActiveTextColor;
@@ -48,21 +46,33 @@ namespace UwUTerm
         internal static ConfigEntry<bool> HistoryIgnoreSpacePrefix;
         internal static ConfigEntry<bool> HistoryIgnoreDuplicates;
         internal static ConfigEntry<string> HistoryIgnorePattern;
-        internal static ConfigEntry<bool> EnableLsColumns;
-        internal static ConfigEntry<bool> ColorizePrompt;
         internal static ConfigEntry<string> PromptTemplate;
         internal static ConfigEntry<string> PromptPalette;
         internal static ConfigEntry<string> PromptTemplateRemote;
         internal static ConfigEntry<string> PromptPaletteRemote;
         internal static ConfigEntry<string> PromptSym;
         internal static ConfigEntry<string> PromptSymRemote;
-        internal static ConfigEntry<bool> NormalizeLsFlags;
-        internal static ConfigEntry<bool> SingleTopBar;
+        internal static ConfigEntry<string> NvimPath;
+        internal static ConfigEntry<string> NvimWorkspace;
+        internal static ConfigEntry<string> NvimFiletype;
+        internal static ConfigEntry<bool> NvimDownload;
         internal static ConfigEntry<float> BarSpacing;
-        internal static ConfigEntry<bool> EnableWindowSnap;
-        internal static ConfigEntry<bool> SnapTopMaximizes;
-        internal static ConfigEntry<bool> SnapPreview;
         internal static ConfigEntry<bool> SkipDragFocus;
+        internal static ConfigEntry<bool> SnapPreview;
+        internal static ConfigEntry<bool> SnapTopMaximizes;
+        internal static ConfigEntry<float> SnapEdgeMargin;
+        internal static ConfigEntry<float> SnapCornerBand;
+        internal static ConfigEntry<bool> EnableModifierDrag;
+        internal static ConfigEntry<string> ModifierDragKey;
+
+        internal static ConfigEntry<bool> CompletionDebug;
+        internal static ConfigEntry<bool> MailDebug;
+        internal static ConfigEntry<bool> ScreenDebug;
+        internal static ConfigEntry<bool> ListFonts;
+        internal static ConfigEntry<bool> DumpDesktop;
+        internal static ConfigEntry<bool> ProbeHost;
+        internal static ConfigEntry<bool> SnapDebug;
+        internal static ConfigEntry<bool> DebugOutput;
 
         internal static ConfigEntry<bool> EnableSnapHotkeys;
         internal static ConfigEntry<KeyboardShortcut> SnapLeft;
@@ -72,16 +82,9 @@ namespace UwUTerm
         internal static ConfigEntry<KeyboardShortcut> SnapQuadrant2;
         internal static ConfigEntry<KeyboardShortcut> SnapQuadrant3;
         internal static ConfigEntry<KeyboardShortcut> SnapQuadrant4;
-
         internal static ConfigEntry<KeyboardShortcut> SearchScrollback;
         internal static ConfigEntry<KeyboardShortcut> HistorySearchBackward;
         internal static ConfigEntry<KeyboardShortcut> HistorySearchForward;
-        internal static ConfigEntry<float> SnapEdgeMargin;
-        internal static ConfigEntry<float> SnapCornerBand;
-        internal static ConfigEntry<bool> SnapDebug;
-        internal static ConfigEntry<bool> EnableModifierDrag;
-        internal static ConfigEntry<string> ModifierDragKey;
-        internal static ConfigEntry<bool> DebugOutput;
 
         private Harmony _harmony;
         private float _nextConfigCheck;
@@ -91,347 +94,268 @@ namespace UwUTerm
         {
             Log = Logger;
 
-            EnableReadline = Config.Bind("Input", "EnableReadline", true,
-                "Readline editing in the terminal.\n" +
+            FeatureTerminal = Config.Bind("Features", "Terminal", true,
+                "Replace the terminal. Grid screen, readline editing, recalling and searching\n" +
+                "history, scrollback search, tab completion, the custom prompt and ls tidying.\n" +
                 "\n" +
-                "MOVE    Ctrl+A/E start, end        Ctrl+B/F char\n" +
-                "        Alt+B/F word              Ctrl+Left/Right word\n" +
-                "KILL    Ctrl+K to end             Ctrl+U to start\n" +
-                "        Ctrl+W word back (whitespace-delimited)\n" +
-                "        Alt+Backspace / Ctrl+Backspace word back\n" +
-                "        Alt+D word forward        Ctrl+D delete char forward\n" +
-                "YANK    Ctrl+Y paste last kill    Alt+Y cycle back through the ring\n" +
-                "EDIT    Ctrl+T swap chars         Alt+T swap words\n" +
-                "        Alt+U/L/C upper, lower, capitalise word\n" +
-                "        Ctrl+Z undo               Ctrl+L clear screen\n" +
-                "HIST    Ctrl+P/N previous, next\n" +
-                "        Ctrl+R/S search history backwards, forwards\n" +
-                "FIND    Ctrl+F search the scrollback\n" +
-                "\n" +
-                "Consecutive kills accumulate into one kill-ring entry, so Ctrl+W Ctrl+W then\n" +
-                "Ctrl+Y brings both words back in order. Alt+Y only works straight after a\n" +
-                "yank. Ctrl+C and Ctrl+Shift+C/V stay the game's.");
+                "All of it or none of it - off gives you the game's own terminal. Whether\n" +
+                "history is kept between sessions is PersistHistory below.");
 
-            KillRingSize = Config.Bind("Input", "KillRingSize", 10,
-                "How many kills to remember for Alt+Y to cycle through.");
-            PanelBackgroundAlpha = Config.Bind("Interface", "PanelBackgroundAlpha", 128,
-                "Opacity, 0-255, of the panel behind the floating overlays - scrollback\n" +
-                "search, history search and the mail headers. They sit over content, so a\n" +
-                "backing makes them readable.");
+            FeatureEditor = Config.Bind("Features", "CodeEditor", true,
+                "Edit code in neovim instead of the game's editor. Needs a neovim binary; see\n" +
+                "the [Editor] section. Without one the game's editor opens as normal.");
 
-            CompletionBackgroundAlpha = Config.Bind("Interface", "CompletionBackgroundAlpha", 0,
-                "Opacity, 0-255, of the completion strip. It gets a line of its own rather\n" +
-                "than covering anything, so it needs no backing.");
+            FeatureDesktop = Config.Bind("Features", "Desktop", true,
+                "Put the taskbar, clock and widgets in one bar along the top, and give the\n" +
+                "space the bottom bar used back to the desktop.");
 
-            EnableScreen = Config.Bind("Screen", "EnableScreen", true,
-                "Draw the terminal as a character grid. This is what UwUTerm's terminal is.\n" +
+            PersistHistory = Config.Bind("Features", "PersistHistory", true,
+                "Keep command history across terminals and sessions, in\n" +
+                "BepInEx/config/" + Guid + ".history\n" +
                 "\n" +
-                "Turning it off hands drawing back to the game's own screen, which exists to\n" +
-                "make the two comparable when something looks wrong - the grid is a rewrite of\n" +
-                "how the terminal is drawn, and being able to see the old behaviour beside it\n" +
-                "is worth more than the handful of branches it costs to keep.\n" +
-                "\n" +
-                "Selection, the cursor, scrolling and the two clipboards belong to the grid and\n" +
-                "go with it. Readline editing, the prompt, history, completion and window\n" +
-                "snapping do not care either way.");
+                "Separate from Terminal because it writes a file. That file is plain text and\n" +
+                "holds whatever you typed, in-game passwords included. IgnoreSpacePrefix and\n" +
+                "IgnorePattern under [History] can keep chosen commands out of it.");
 
-            ScreenPadding = Config.Bind("Screen", "ScreenPadding", 10f,
-                "Pixels of breathing room between the terminal's edge and its text.\n" +
-                "\n" +
-                "Text starts at the very edge of the scroll area otherwise, where the window's\n" +
-                "own mask clips the first column.");
+            FeatureMail = Config.Bind("Features", "Mail", true,
+                "Add a headers link to each message in the mail client.");
 
-            CursorStyle = Config.Bind("Screen", "CursorStyle", "block",
-                "Shape of the terminal cursor: block, bar or underline.\n" +
-                "\n" +
-                "A block covers the character and is drawn translucent so the letter reads\n" +
-                "through it. A bar sits before the character and an underline beneath it, both\n" +
-                "solid, since a thin translucent line is barely visible.\n" +
-                "\n" +
-                "All three are sized from the cell, so they follow whatever TerminalFont and\n" +
-                "TerminalFontSize are set to.");
+            FeatureWindows = Config.Bind("Features", "WindowSnapping", true,
+                "Drag a window to a screen edge to snap it, and snap from the keyboard.");
 
-            CursorBlink = Config.Bind("Screen", "CursorBlink", true,
-                "Blink the cursor, half a second on and half off. Off leaves it lit.\n" +
-                "\n" +
-                "Only the terminal you are typing in draws a cursor either way - an unfocused\n" +
-                "one would otherwise sit there blinking alongside it with nothing to type into.");
+            // ---- terminal ----------------------------------------------------------------
 
-            TerminalFontName = Config.Bind("Interface", "TerminalFont", "",
+            KillRingSize = Config.Bind("Terminal", "KillRingSize", 10,
+                "How many kills Alt+Y cycles through.");
+
+            ScreenPadding = Config.Bind("Terminal", "ScreenPadding", 10f,
+                "Pixels between the terminal's edge and its text.");
+
+            CursorStyle = Config.Bind("Terminal", "CursorStyle", "block",
+                "Cursor shape: block, bar or underline.");
+
+            CursorBlink = Config.Bind("Terminal", "CursorBlink", true,
+                "Blink the cursor. Only the focused terminal draws one; the rest show an\n" +
+                "outline.");
+
+            TerminalFontName = Config.Bind("Terminal", "Font", "",
                 "Font to render the terminal in. Blank keeps the game's own.\n" +
                 "\n" +
                 "Copy the .ttf or .otf into BepInEx/fonts/ and name it here:\n" +
                 "\n" +
                 "    cp /usr/share/fonts/hack/Hack-Regular.ttf <game>/BepInEx/fonts/\n" +
-                "    TerminalFont = Hack\n" +
+                "    Font = Hack\n" +
                 "\n" +
-                "The copy is what makes it work. Steam runs the game inside a container with a\n" +
-                "/usr/share/fonts of its own, holding six DejaVu faces and nothing else, so the\n" +
-                "fonts installed on the machine cannot be reached from in here. BepInEx/fonts\n" +
-                "can be, because the game is running out of it.\n" +
+                "The copy is required. Steam runs the game in a container with its own\n" +
+                "/usr/share/fonts, so fonts installed on the machine are not reachable.\n" +
                 "\n" +
                 "Matching is on the filename, ignoring case and punctuation, and the regular\n" +
-                "weight wins over its bold and italic siblings - so \"Hack\" finds\n" +
-                "Hack-Regular.ttf. A font whose filename does not resemble the family name it\n" +
-                "is known by has to be named as the file. An absolute path also works.\n" +
-                "\n" +
-                "These are searched as well, and are enough wherever nothing is sandboxing the\n" +
-                "game:\n" +
+                "weight wins over bold and italic. An absolute path also works. These are\n" +
+                "searched too:\n" +
                 "  ~/.fonts, ~/.local/share/fonts\n" +
-                "  /run/host/usr/share/fonts   the real system, seen from inside a container\n" +
+                "  /run/host/usr/share/fonts\n" +
                 "  /usr/share/fonts\n" +
                 "  %WINDIR%/Fonts\n" +
-                "Set ListFonts under [Diagnostics] to see which of them this game can read.\n" +
                 "\n" +
-                "Pick a monospace font. The caret is drawn inline so it lands correctly either\n" +
-                "way, but the server pads `ls -l` and `ps` output to fixed columns and the `ls`\n" +
-                "reflow measures one glyph's advance - a proportional font leaves both ragged.\n" +
-                "\n" +
-                "Only terminal windows change. Titlebars, the mail client and the desktop keep\n" +
-                "the game's fonts, which its layouts are measured against.");
+                "Use a monospace font. `ls -l` and `ps` are padded to fixed columns by the\n" +
+                "server, and a proportional font leaves them ragged.");
 
-            TerminalFontSize = Config.Bind("Interface", "TerminalFontSize", 0f,
-                "Point size for terminal text. 0 keeps whatever the game set, which is what\n" +
-                "you want unless the font you chose renders larger or smaller than the one it\n" +
-                "replaced.\n" +
-                "\n" +
-                "Every open terminal remeasures its rows when this changes, so the lines close\n" +
-                "up around a smaller size rather than leaving it stranded in the taller rows\n" +
-                "the old size was measured into.");
+            TerminalFontSize = Config.Bind("Terminal", "FontSize", 0f,
+                "Point size for terminal text. 0 keeps the game's.");
 
-            TerminalFontFallback = Config.Bind("Interface", "TerminalFontFallback", true,
-                "Fall back to the game's own font for glyphs the chosen one does not have.\n" +
-                "\n" +
-                "The game ships a different monospace font per locale - cyrillic, japanese and\n" +
-                "chinese each have their own - and a programming font typically covers none of\n" +
-                "them. Leaving this on means those characters keep rendering instead of coming\n" +
-                "out as empty boxes.");
+            TerminalFontFallback = Config.Bind("Terminal", "FontFallback", true,
+                "Fall back to the game's font for glyphs the chosen one lacks. The game ships a\n" +
+                "different monospace font per locale, and most programming fonts cover none of\n" +
+                "them.");
 
-            MenuComplete = Config.Bind("Input", "MenuComplete", true,
-                "Tab cycles through completions instead of printing them all and stopping at\n" +
-                "the longest common prefix. Shift+Tab steps back, Escape restores what you\n" +
-                "had typed, anything else accepts the selection and carries on.");
+            PanelBackgroundAlpha = Config.Bind("Terminal", "PanelBackgroundAlpha", 128,
+                "Opacity, 0-255, of the panels behind scrollback search, history search and the\n" +
+                "mail headers.");
 
-            CompletionSelectedColor = Config.Bind("Input", "CompletionSelectedColor", "#ffd75f",
+            CompletionBackgroundAlpha = Config.Bind("Terminal", "CompletionBackgroundAlpha", 0,
+                "Opacity, 0-255, of the completion strip.");
+
+            CompletionSelectedColor = Config.Bind("Terminal", "CompletionSelectedColor", "#ffd75f",
                 "Colour of the highlighted candidate in the completion menu.");
 
-            FilterCommandNames = Config.Bind("Input", "FilterCommandNames", true,
-                "Leave command names out of completions for arguments. The server answers\n" +
-                "with everything in scope, commands included, because it does not know which\n" +
-                "slot you are filling - useful for the first word, noise after it.");
+            FilterCommandNames = Config.Bind("Terminal", "FilterCommandNames", true,
+                "Leave command names out of completions for arguments. The server answers with\n" +
+                "everything in scope because it does not know which slot is being filled.");
 
-            KnownCommands = Config.Bind("Input", "KnownCommands",
+            KnownCommands = Config.Bind("Terminal", "KnownCommands",
                 "aircrack, aireplay, airmon, apt-get, build, cat, cd, chgrp, chmod, chown, " +
                 "clear, cp, decipher, echo, exit, ftp, groupadd, groupdel, groups, help, " +
                 "ifconfig, iwconfig, iwlist, kill, ls, mkdir, mv, nmap, nslookup, passwd, " +
                 "ping, ps, pwd, reboot, rm, scanlib, shutdown, smtp_user_list, ssh, sudo, " +
                 "touch, useradd, userdel, whoami, whois",
-                "Extra names treated as commands by the filter above.\n" +
-                "\n" +
-                "The real list is read from /bin on the machine itself, so anything installed\n" +
-                "there counts without being named here. This covers the rest - names that are\n" +
-                "commands but do not live in /bin, or a machine whose /bin cannot be read.");
+                "Extra names treated as commands by the filter above. The real list is read\n" +
+                "from /bin on the machine; this covers names that live elsewhere.");
 
-            IgnoreArgumentExtensions = Config.Bind("Input", "IgnoreArgumentExtensions", ".exe",
-                "File extensions never offered when completing an argument. .exe is a\n" +
-                "windowed program - something you launch, never something you pass to\n" +
-                "another command. Completing the first word still offers them.");
+            IgnoreArgumentExtensions = Config.Bind("Terminal", "IgnoreArgumentExtensions", ".exe",
+                "Extensions never offered when completing an argument. Completing the first\n" +
+                "word still offers them.");
 
-            CompletionDebug = Config.Bind("Diagnostics", "CompletionDebug", false,
-                "Log what Tab asks the server to complete, the candidates that come back, and\n" +
-                "which of them survive filtering. Several lines per keypress - on only while\n" +
-                "working out why a particular completion behaves the way it does.");
+            SearchMatchTextColor = Config.Bind("Terminal", "SearchMatchColor", "#7fb4ff",
+                "Text colour for scrollback search matches other than the current one.");
 
-            MailHeaders = Config.Bind("Mail", "ShowHeaderLink", true,
-                "Add a \"headers\" link to each message in the mail client, showing sender,\n" +
-                "recipient, direction and the rest of what the game stores about it.");
+            SearchActiveTextColor = Config.Bind("Terminal", "SearchActiveColor", "#ffd75f",
+                "Text colour for the match you are on.");
 
-            MailCards = Config.Bind("Mail", "CardStyle", true,
-                "Draw each message in a thread as its own panel, so replies are separated\n" +
-                "instead of running together.");
+            SearchMatchHighlightColor = Config.Bind("Terminal", "SearchMatchHighlight", "",
+                "Optional background behind matches. RGBA hex, blank for none. Keep the alpha\n" +
+                "low, around #7fb4ff40.");
 
-            MailDebug = Config.Bind("Diagnostics", "MailDebug", false,
-                "Log when a mail is opened and how many message rows were found.");
+            SearchActiveHighlightColor = Config.Bind("Terminal", "SearchActiveHighlight", "",
+                "Optional background behind the current match. RGBA hex, blank for none.");
 
-            SearchMatchTextColor = Config.Bind("Search", "MatchTextColor", "#7fb4ff",
-                "Text colour for matches other than the one you are on.");
-
-            SearchActiveTextColor = Config.Bind("Search", "ActiveTextColor", "#ffd75f",
-                "Text colour for the match you are currently on.");
-
-            SearchMatchHighlightColor = Config.Bind("Search", "MatchHighlightColor", "",
-                "Optional background behind matches other than the active one. RGBA hex,\n" +
-                "blank for none.\n" +
-                "\n" +
-                "TMP draws a background as a filled quad OVER the glyphs - it is what the\n" +
-                "game uses to censor addresses in streaming mode - so a solid colour hides\n" +
-                "the very text you searched for. Keep the alpha low if you use one, around\n" +
-                "#7fb4ff40, and check it against your theme.");
-
-            SearchActiveHighlightColor = Config.Bind("Search", "ActiveHighlightColor", "",
-                "Optional background behind the active match. Same caveat as\n" +
-                "MatchHighlightColor - keep the alpha low.");
-
-            PersistHistory = Config.Bind("History", "PersistHistory", true,
-                "Keep command history across terminals and across sessions, in\n" +
-                "BepInEx/config/" + Guid + ".history\n" +
-                "\n" +
-                "All open terminals share one history, so a command typed in one is\n" +
-                "immediately available with Up in another.\n" +
-                "\n" +
-                "The file is plain text and holds whatever you typed, in-game passwords\n" +
-                "included. Nothing in the game can read it. IgnoreSpacePrefix and\n" +
-                "IgnorePattern below can keep chosen commands out of it if you want that.");
+            // ---- history -----------------------------------------------------------------
 
             HistoryLimit = Config.Bind("History", "HistoryLimit", 500,
                 "How many commands to keep. Oldest are dropped first.");
 
             HistoryIgnoreSpacePrefix = Config.Bind("History", "IgnoreSpacePrefix", false,
-                "Commands typed with a leading space are not recorded (bash's ignorespace).\n" +
-                "Off by default - turn it on if you want a way to skip individual commands.");
+                "Do not record commands typed with a leading space (bash's ignorespace).");
 
             HistoryIgnoreDuplicates = Config.Bind("History", "IgnoreDuplicates", true,
                 "Do not record a command identical to the one before it (bash's ignoredups).");
 
             HistoryIgnorePattern = Config.Bind("History", "IgnorePattern", "",
                 "Regex - commands matching it are never recorded. Blank disables the check.\n" +
-                "Example, to keep every ssh invocation out of the file:  ^\\s*ssh\\s");
+                "Example:  ^\\s*ssh\\s");
 
-            ColorizePrompt = Config.Bind("Prompt", "ColorizePrompt", true,
-                "Replace the server's prompt with a custom one.");
+            // ---- prompt ------------------------------------------------------------------
 
             PromptTemplate = Config.Bind("Prompt", "Prompt",
                 "{user}@{host}:{path}{sym}{sp}",
                 "Prompt layout.\n" +
                 "\n" +
                 "TEXT     {user} {host} {path} {sym} {ip} {device} {pid}\n" +
-                "COLOUR   {#name} (from Palette) or {#rrggbb} (literal)\n" +
-                "         {/} clears it again\n" +
+                "COLOUR   {#name} (from Palette) or {#rrggbb} (literal), {/} clears it\n" +
                 "SPACING  \\n or {nl} = newline, {sp} = space\n" +
-                "         The template is the entire prompt - the trailing space the server\n" +
-                "         sends is dropped, so end with {sp} or your command runs into it.\n" +
-                "         (a literal trailing space will not survive - config values are trimmed)\n" +
                 "\n" +
-                "HOW COLOUR WORKS\n" +
-                "Literal text is not coloured at all by default, so it uses the terminal\n" +
-                "theme's own text colour. A {#...} sets a colour for the literal text that\n" +
-                "follows and stays in effect until the next {#...} or a {/}.\n" +
+                "The template is the whole prompt; the server's trailing space is dropped, so\n" +
+                "end with {sp}. Literal text is uncoloured unless a {#...} is in effect.\n" +
+                "Variables colour themselves from Palette and hand the colour back, so no {/}\n" +
+                "is needed after one.\n" +
                 "\n" +
-                "Variables colour themselves from Palette and then hand the colour back to\n" +
-                "whatever {#...} was running, so you never need a {/} after one. A variable\n" +
-                "Palette does not name is left to the running colour instead.\n" +
-                "\n" +
-                "Mixing the two:\n" +
-                "  {#8be9fd}[{user}@{host}] {path}{sym}{sp}\n" +
-                "the brackets, the @ and the space are cyan; {user} and {host} use their\n" +
-                "Palette colours and cyan resumes after each; {path} likewise; {sym} has no\n" +
-                "Palette entry, so it stays cyan.\n" +
-                "\n" +
-                "Two lines, nothing coloured by the template:\n" +
-                "  +-[{user}@{host}] - [{path}]\\n+-[{sym}]{sp}");
+                "Two lines:  +-[{user}@{host}] - [{path}]\\n+-[{sym}]{sp}");
 
             PromptPalette = Config.Bind("Prompt", "Palette",
                 "user:#50fa7b, user.root:#ff5555, user.guest:#f8f8f2, host:#8be9fd, path:#bd93f9",
                 "Colours for prompt variables, as name:colour pairs. The # is optional.\n" +
                 "\n" +
-                "A name matching a variable colours that variable: 'host' colours {host}.\n" +
-                "Add '.root' or '.guest' to vary it by who you are logged in as - {user}\n" +
-                "tries 'user.root' first and falls back to 'user'. This works for every\n" +
-                "variable, so 'path.root' turns the path red only while you are root.\n" +
-                "\n" +
-                "Names are also usable in the template as {#name}, which is how you colour\n" +
-                "literal text without repeating hex codes. Anything that is valid hex is\n" +
-                "read as a colour rather than a name, so avoid naming an entry 'abc'.\n" +
-                "\n" +
-                "A variable with no entry here is not coloured - it inherits the running\n" +
-                "{#...} colour, or the terminal theme if none is set.");
+                "A name matching a variable colours it. Add '.root' or '.guest' to vary it by\n" +
+                "who you are logged in as. Names are also usable as {#name} in the template.\n" +
+                "A variable with no entry here inherits the running colour.");
 
             PromptSym = Config.Bind("Prompt", "Sym", "root:#, user:$, guest:$",
-                "What {sym} prints, per role: root, user, guest.\n" +
-                "The server sends # for root and $ for everyone else; what you set here\n" +
-                "overrides it, and any role you leave out keeps the server's symbol.");
+                "What {sym} prints, per role. Any role left out keeps the server's symbol.");
 
             PromptTemplateRemote = Config.Bind("Prompt", "PromptRemote", "",
-                "Used instead of Prompt when connected to a remote machine.\n" +
-                "Blank means use Prompt. Fill it in only when you want a different layout\n" +
-                "out there - for colour or symbol changes alone, use the two below.");
+                "Used instead of Prompt on a remote machine. Blank means use Prompt.");
 
             PromptPaletteRemote = Config.Bind("Prompt", "PaletteRemote",
                 "user:#ffb86c, user.root:#ff2222, host:#ffb86c",
-                "Overlays Palette when remote - only the names listed here change, the rest\n" +
-                "fall through to Palette.");
+                "Overlays Palette when remote. Only the names listed here change.");
 
             PromptSymRemote = Config.Bind("Prompt", "SymRemote", "",
-                "Overlays Sym when remote - only the roles listed here change.");
+                "Overlays Sym when remote. Only the roles listed here change.");
 
+            // ---- editor ------------------------------------------------------------------
 
-            DumpDesktop = Config.Bind("Diagnostics", "DumpDesktop", false,
-                "Write the desktop's UI hierarchy to the log once - what is parented where,\n" +
-                "how each piece is anchored, and which components it carries. Anchors and\n" +
-                "layout live in the scene rather than in code, so this is the only way to read\n" +
-                "them.");
+            NvimPath = Config.Bind("Editor", "NvimPath", "",
+                "Where the neovim binary is. Blank looks in BepInEx/nvim/bin.");
 
-            ScreenDebug = Config.Bind("Diagnostics", "ScreenDebug", false,
-                "Log when the grid screen takes over a terminal, and the grid size it chose.");
-
-            ListFonts = Config.Bind("Diagnostics", "ListFonts", false,
-                "Log every directory TerminalFont searches, whether this game can read it, and\n" +
-                "the fonts in it. Printed once, whether set at startup or turned on while the\n" +
-                "game runs. A name TerminalFont cannot match prints the same thing, so this is\n" +
-                "only needed to browse before choosing.");
-            EnableLsColumns = Config.Bind("Output", "EnableLsColumns", true,
-                "Reflow bare `ls` output into columns, the way `ls -C` does.");
-            NormalizeLsFlags = Config.Bind("Output", "NormalizeLsFlags", true,
-                "Accept ls flags in any order: -al, -a -l and -l -a are rewritten to the " +
-                "-la the server expects.");
-            SingleTopBar = Config.Bind("Desktop", "SingleTopBar", true,
-                "Put everything in one bar along the top.\n" +
+            NvimWorkspace = Config.Bind("Editor", "NvimWorkspace", "",
+                "The directory the editor starts in. Blank means BepInEx/workspace, made on\n" +
+                "first use.\n" +
                 "\n" +
-                "Open windows move from the taskbar at the bottom into the top bar, the clock\n" +
-                "joins the notification icons and user name in the corner, and the strip the\n" +
-                "bottom bar was using goes back to the desktop.\n" +
+                "A folder on your machine, holding none of the game's files - a script lives on\n" +
+                "the server and reaches the editor as text. :w writes here; the window's save\n" +
+                "button compiles into the game.");
+
+            NvimFiletype = Config.Bind("Editor", "NvimFiletype", "greyscript",
+                "The filetype neovim is told the buffer is. Highlighting follows from this, so\n" +
+                "a syntax file or treesitter parser for it works once installed. Blank lets\n" +
+                "neovim infer it from the file name.");
+
+            NvimDownload = Config.Bind("Editor", "NvimDownload", false,
+                "Off by default. Fetches neovim into BepInEx/nvim on startup when it is not\n" +
+                "already there.\n" +
                 "\n" +
-                "Windows snap and maximise to whatever is left, so they sit under the bar\n" +
-                "rather than behind it.");
+                "To install it yourself:\n" +
+                "  Linux    https://github.com/neovim/neovim/releases/latest/download/nvim-linux-x86_64.tar.gz\n" +
+                "  Windows  https://github.com/neovim/neovim/releases/latest/download/nvim-win64.zip\n" +
+                "\n" +
+                "Unpack it so the binary sits at BepInEx/nvim/bin/nvim (nvim.exe on Windows).");
+
+            // ---- desktop -----------------------------------------------------------------
 
             BarSpacing = Config.Bind("Desktop", "BarSpacing", 12f,
                 "Pixels between the things in the top bar. The gap before the window list is\n" +
-                "twice this, since it separates the two groups rather than two neighbours.\n" +
-                "\n" +
-                "Lower it to bring the window list closer to your name. What is left is the\n" +
-                "start menu, your icon and your name, which take the room they take.");
+                "twice this.");
 
-            EnableWindowSnap = Config.Bind("Windows", "EnableWindowSnap", true,
-                "Drag a window to an edge to snap it: side for half, corner for a quarter.");
+            // ---- mail --------------------------------------------------------------------
+
+            MailCards = Config.Bind("Mail", "CardStyle", true,
+                "Draw each message in a thread as its own panel.");
+
+            // ---- windows -----------------------------------------------------------------
+
             SkipDragFocus = Config.Bind("Windows", "SkipDragFocus", true,
-                "Skip the game's per-frame re-focus while dragging a window.\n" +
+                "Skip the game's per-frame refocus while dragging a window.\n" +
                 "\n" +
-                "uDialog re-focuses a window on every frame of a drag, and focusing reorders\n" +
-                "siblings - which dirties the whole canvas and rebuilds the batches for every\n" +
-                "window on screen. After the first frame the window is already frontmost, so\n" +
-                "the repeats do nothing but cost frames. This is the single biggest\n" +
-                "performance fix in the mod - dragging with several windows open went from\n" +
-                "about 33 fps to 120.");
+                "Focusing reorders siblings, which rebuilds every window's batches, so dragging\n" +
+                "with several windows open drops to a fraction of the frame rate. Skipping the\n" +
+                "repeats holds it at whatever the rest of the game runs at.");
 
             SnapPreview = Config.Bind("Windows", "SnapPreview", true,
                 "Outline where a dragged window will land before you let go.");
 
             SnapTopMaximizes = Config.Bind("Windows", "SnapTopMaximizes", true,
                 "Dragging to the top edge fills the desktop.");
+
             SnapEdgeMargin = Config.Bind("Windows", "SnapEdgeMargin", 0.04f,
-                "How close to an edge the pointer must be to snap, as a fraction of the desktop.");
+                "How close to an edge the pointer must be to snap, as a fraction of the\n" +
+                "desktop.");
+
             SnapCornerBand = Config.Bind("Windows", "SnapCornerBand", 0.3f,
-                "Fraction of desktop height at the top and bottom of a side edge that counts " +
-                "as a corner (quarter) rather than the middle (half).");
+                "Fraction of desktop height at each end of a side edge that counts as a corner\n" +
+                "rather than the middle.");
+
             EnableModifierDrag = Config.Bind("Windows", "EnableModifierDrag", true,
                 "Hold a modifier and drag anywhere on a window to move it.");
+
             ModifierDragKey = Config.Bind("Windows", "ModifierDragKey", "ctrl",
                 "Modifier for drag-from-anywhere: ctrl, alt or shift.");
+
+            // ---- diagnostics -------------------------------------------------------------
+
+            CompletionDebug = Config.Bind("Diagnostics", "CompletionDebug", false,
+                "Log what Tab asks the server to complete and what comes back.");
+
+            MailDebug = Config.Bind("Diagnostics", "MailDebug", false,
+                "Log when a mail is opened and how many message rows were found.");
+
+            ScreenDebug = Config.Bind("Diagnostics", "ScreenDebug", false,
+                "Log grid sizes, scrolling and what is drawing inside a terminal or editor.");
+
+            ListFonts = Config.Bind("Diagnostics", "ListFonts", false,
+                "Log every directory Font searches and the fonts in each. Printed once.");
+
+            DumpDesktop = Config.Bind("Diagnostics", "DumpDesktop", false,
+                "Log the desktop's UI hierarchy once - what is parented where and how it is\n" +
+                "anchored.");
+
+            ProbeHost = Config.Bind("Diagnostics", "ProbeHost", false,
+                "Log once what the game process can reach: its environment, which directories\n" +
+                "exist, and whether a child process can be started.");
+
             SnapDebug = Config.Bind("Diagnostics", "SnapDebug", false,
                 "Log window drag and snap-zone decisions.");
+
             DebugOutput = Config.Bind("Diagnostics", "DebugOutput", false,
-                "Log every command sent and every output block received. Noisy - for " +
-                "working out what the server actually sends.");
+                "Log every command sent and every output block received. Noisy.");
 
             _harmony = new Harmony(Guid);
 
@@ -448,6 +372,7 @@ namespace UwUTerm
             Register("windows", () => WindowSnap.Apply(_harmony));
             Register("window-area", () => WindowArea.Apply(_harmony));
             Register("clock", () => DesktopClock.Apply(_harmony));
+            Register("nvim", () => NvimEditor.Apply(_harmony));
             Register("terminal-font", () => TerminalFont.Apply(_harmony));
             Register("screen", () => ScreenTakeover.Apply(_harmony));
             Register("screen-clipboard", () => ScreenClipboard.Apply(_harmony));
@@ -455,6 +380,7 @@ namespace UwUTerm
             BindHotkeys();
             PruneOrphanedSettings(Config, "settings");
             PruneOrphanedSettings(Hotkeys, "hotkeys");
+            SectionFirst(Config.ConfigFilePath, "Features");
             Log.LogInfo($"{Name} {Version} ready.");
         }
 
@@ -488,6 +414,51 @@ namespace UwUTerm
         }
 
         /// <summary>
+        /// Move a section to the top of the file it was written into.
+        ///
+        /// Sections come out in alphabetical order, which puts the one saying what is switched
+        /// on somewhere in the middle. There is no ordering hint to ask for, so the file is
+        /// rearranged once after it is written.
+        /// </summary>
+        private void SectionFirst(string path, string section)
+        {
+            try
+            {
+                if (!System.IO.File.Exists(path)) return;
+
+                string[] lines = System.IO.File.ReadAllLines(path);
+                string header = "[" + section + "]";
+
+                int start = System.Array.IndexOf(lines, header);
+                if (start <= 0) return;
+
+                int end = start + 1;
+                while (end < lines.Length && !lines[end].StartsWith("[")) end++;
+
+                // The file's own comment header stays where it is; the section goes under it.
+                int after = 0;
+                while (after < lines.Length && (lines[after].StartsWith("##") || lines[after].Length == 0)) after++;
+                if (after >= start) return;
+
+                var reordered = new System.Collections.Generic.List<string>(lines.Length);
+                reordered.AddRange(new System.ArraySegment<string>(lines, 0, after));
+                reordered.AddRange(new System.ArraySegment<string>(lines, start, end - start));
+                reordered.AddRange(new System.ArraySegment<string>(lines, after, start - after));
+                reordered.AddRange(new System.ArraySegment<string>(lines, end, lines.Length - end));
+
+                System.IO.File.WriteAllLines(path, reordered.ToArray());
+
+                // Ours, not someone editing it - so the watcher does not read it back as a
+                // change and announce a reload that changed nothing.
+                _configStamp = System.IO.File.GetLastWriteTimeUtc(path);
+            }
+            catch (System.Exception e)
+            {
+                Log.LogWarning($"could not move [{section}] to the top: {e.Message}");
+            }
+        }
+
+        /// <summary>
         /// Hotkeys live in their own file: there are enough of them now that mixing them
         /// with colours and toggles makes both harder to find, and rebinding is the kind of
         /// thing people do without wanting to read past everything else.
@@ -514,29 +485,27 @@ namespace UwUTerm
 
             SnapQuadrant1 = Hotkeys.Bind("Windows", "SnapQuadrant1",
                 new KeyboardShortcut(KeyCode.Alpha1, KeyCode.LeftControl, KeyCode.LeftAlt, KeyCode.LeftShift),
-                "Quadrants are numbered as on an x-y axis, counter-clockwise from top right.\n" +
-                "Quadrant 1: top right.");
+                "Top right. Quadrants are numbered as on an x-y axis, counter-clockwise from\n" +
+                "top right.");
 
             SnapQuadrant2 = Hotkeys.Bind("Windows", "SnapQuadrant2",
                 new KeyboardShortcut(KeyCode.Alpha2, KeyCode.LeftControl, KeyCode.LeftAlt, KeyCode.LeftShift),
-                "Quadrant 2: top left.");
+                "Top left.");
 
             SnapQuadrant3 = Hotkeys.Bind("Windows", "SnapQuadrant3",
                 new KeyboardShortcut(KeyCode.Alpha3, KeyCode.LeftControl, KeyCode.LeftAlt, KeyCode.LeftShift),
-                "Quadrant 3: bottom left.");
+                "Bottom left.");
 
             SnapQuadrant4 = Hotkeys.Bind("Windows", "SnapQuadrant4",
                 new KeyboardShortcut(KeyCode.Alpha4, KeyCode.LeftControl, KeyCode.LeftAlt, KeyCode.LeftShift),
-                "Quadrant 4: bottom right.");
+                "Bottom right.");
 
             SearchScrollback = Hotkeys.Bind("Terminal", "SearchScrollback",
                 new KeyboardShortcut(KeyCode.F, KeyCode.LeftControl),
-                "Search the terminal scrollback. Pressing it again steps to the next match.\n" +
+                "Search the terminal scrollback. Press again for the next match.\n" +
                 "\n" +
-                "The readline editing keys - Ctrl+A/E/K/U/W, Alt+B/F and the rest - are not\n" +
-                "rebindable. They are standard across every shell and terminal, and moving\n" +
-                "them tends to cause more confusion than it solves. Only these three are\n" +
-                "here, because they are the ones that collide with existing habits.");
+                "The readline keys - Ctrl+A/E/K/U/W, Alt+B/F and the rest - are not rebindable.\n" +
+                "Only the three here are, because they collide with existing habits.");
 
             HistorySearchBackward = Hotkeys.Bind("Terminal", "HistorySearchBackward",
                 new KeyboardShortcut(KeyCode.R, KeyCode.LeftControl),
@@ -565,6 +534,8 @@ namespace UwUTerm
             Patches.ScreenTakeover.Tick();
             Ui.PrimaryPaste.Tick();
             Ui.DesktopReport.Tick();
+            HostProbe.Tick();
+            Patches.NvimEditor.Tick();
             Ui.DesktopBar.Tick();
             PollConfigFile();
         }
@@ -604,6 +575,19 @@ namespace UwUTerm
             }
         }
 
-        private void OnDestroy() => _harmony?.UnpatchSelf();
+        /// <summary>
+        /// Called when the plugin is torn down, and on the way out of the game.
+        ///
+        /// The editor runs neovim as a child process, and a child outlives its parent unless
+        /// something ends it - which is how the game can look like it is still running after
+        /// its window has gone.
+        /// </summary>
+        private void OnDestroy()
+        {
+            Patches.NvimEditor.Shutdown();
+            _harmony?.UnpatchSelf();
+        }
+
+        private void OnApplicationQuit() => Patches.NvimEditor.Shutdown();
     }
 }

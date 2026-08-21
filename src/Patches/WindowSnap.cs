@@ -95,7 +95,7 @@ namespace UwUTerm.Patches
         {
             Hotkeys();
 
-            if (!UwUTermPlugin.EnableWindowSnap.Value && !UwUTermPlugin.EnableModifierDrag.Value) return;
+            if (!UwUTermPlugin.FeatureWindows.Value && !UwUTermPlugin.EnableModifierDrag.Value) return;
 
             if (Input.GetMouseButtonUp(0))
             {
@@ -105,7 +105,7 @@ namespace UwUTerm.Patches
                 _modifierDrag = null;
                 _moving = null;
                 _loggedThisDrag = false;
-                if (released != null && UwUTermPlugin.EnableWindowSnap.Value) Snap(released);
+                if (released != null && UwUTermPlugin.FeatureWindows.Value) Snap(released);
                 return;
             }
 
@@ -133,7 +133,7 @@ namespace UwUTerm.Patches
 
         private static void OnMove(uDialog __instance)
         {
-            if (!UwUTermPlugin.EnableWindowSnap.Value) return;
+            if (!UwUTermPlugin.FeatureWindows.Value) return;
             if (ReferenceEquals(_moving, __instance)) return;
 
             _moving = __instance;
@@ -207,7 +207,7 @@ namespace UwUTerm.Patches
         /// the window.</summary>
         private static void Preview(uDialog dragged)
         {
-            if (!UwUTermPlugin.EnableWindowSnap.Value || !UwUTermPlugin.SnapPreview.Value)
+            if (!UwUTermPlugin.FeatureWindows.Value || !UwUTermPlugin.SnapPreview.Value)
             {
                 _ghost?.Hide();
                 return;
@@ -246,7 +246,7 @@ namespace UwUTerm.Patches
         /// </summary>
         private static void Hotkeys()
         {
-            if (!UwUTermPlugin.EnableWindowSnap.Value || !UwUTermPlugin.EnableSnapHotkeys.Value) return;
+            if (!UwUTermPlugin.FeatureWindows.Value || !UwUTermPlugin.EnableSnapHotkeys.Value) return;
 
             Zone zone = HotkeyZone();
             if (zone == Zone.None) return;

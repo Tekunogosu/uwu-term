@@ -8,6 +8,7 @@
 // makes ReflowNarrower and ReflowWider - the two most intricate files in the original -
 // unnecessary rather than merely unported, and it is exact where a reflow is approximate.
 
+using System;
 using System.Collections.Generic;
 
 namespace UwUTerm.Screen
@@ -120,6 +121,57 @@ namespace UwUTerm.Screen
             line = origin.Line;
             rune = origin.FirstRune + System.Math.Min(counted, origin.RuneCount);
             return true;
+        }
+
+        // ---- direct writing --------------------------------------------------------------
+        //
+        // Composing a grid from lines is one way to fill it; being handed cells is another.
+        // Neovim's UI protocol reports what changed - a run of cells at a position, a scrolled
+        // region, a cleared screen - so a caller speaking that needs to put cells in rather
+        // than describe the text they came from.
+
+        internal void Put(int row, int column, int rune, int width, Style style) =>
+            Write(row, column, rune, width, style);
+
+        internal void Fill(Style style)
+        {
+            Cell blank = Cell.Blank;
+            blank.Foreground = style.Foreground;
+            blank.Background = style.Background;
+
+            for (int i = 0; i < _cells.Length; i++) _cells[i] = blank;
+        }
+
+        internal void PlaceCaret(int row, int column)
+        {
+            CaretRow = row;
+            CaretColumn = column;
+        }
+
+        /// <summary>
+        /// Move a rectangle of cells up or down within itself, as a scrolled window does.
+        ///
+        /// The rows uncovered at the trailing edge are left as they are: neovim always follows
+        /// a scroll with the lines to draw into them, and blanking here would show a flash of
+        /// empty rows in between.
+        /// </summary>
+        internal void ScrollRegion(int top, int bottom, int left, int right, int rows)
+        {
+            if (rows == 0) return;
+
+            int step = rows > 0 ? 1 : -1;
+            int from = rows > 0 ? top + rows : bottom - 1 + rows;
+            int to = rows > 0 ? top : bottom - 1;
+
+            for (int moved = 0; moved < bottom - top - Math.Abs(rows); moved++)
+            {
+                int source = from + moved * step;
+                int target = to + moved * step;
+                if (source < 0 || source >= Rows || target < 0 || target >= Rows) continue;
+
+                for (int column = left; column < right && column < Columns; column++)
+                    _cells[target * Columns + column] = _cells[source * Columns + column];
+            }
         }
 
         internal void Resize(int columns, int rows)

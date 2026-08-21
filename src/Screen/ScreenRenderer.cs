@@ -20,9 +20,18 @@ namespace UwUTerm.Screen
     {
         private static readonly StringBuilder Builder = new StringBuilder(8192);
 
-        internal static string Render(ScreenGrid grid)
+        /// <summary>
+        /// Draw the grid as markup.
+        ///
+        /// TMP paints a &lt;mark&gt; as a filled quad over the glyphs rather than behind them -
+        /// it is how the game censors addresses - so a caller whose cells nearly all carry a
+        /// background has to say no here and draw them itself, or every character disappears
+        /// under its own highlight.
+        /// </summary>
+        internal static string Render(ScreenGrid grid, bool backgrounds = true)
         {
             Builder.Length = 0;
+            _backgrounds = backgrounds;
 
             for (int row = 0; row < grid.Rows; row++)
             {
@@ -32,6 +41,8 @@ namespace UwUTerm.Screen
 
             return Builder.ToString();
         }
+
+        private static bool _backgrounds = true;
 
         private static void RenderRow(ScreenGrid grid, int row)
         {
@@ -96,7 +107,8 @@ namespace UwUTerm.Screen
 
         private static void Open(Style style)
         {
-            if (style.Background != Cell.Inherit) { Builder.Append("<mark=#"); Hex(style.Background); Builder.Append('>'); }
+            if (_backgrounds && style.Background != Cell.Inherit)
+            { Builder.Append("<mark=#"); Hex(style.Background); Builder.Append('>'); }
             if (style.Foreground != Cell.Inherit) { Builder.Append("<color=#"); Hex(style.Foreground); Builder.Append('>'); }
             if ((style.Flags & CellFlags.Bold) != 0) Builder.Append("<b>");
             if ((style.Flags & CellFlags.Italic) != 0) Builder.Append("<i>");
@@ -111,7 +123,7 @@ namespace UwUTerm.Screen
             if ((style.Flags & CellFlags.Italic) != 0) Builder.Append("</i>");
             if ((style.Flags & CellFlags.Bold) != 0) Builder.Append("</b>");
             if (style.Foreground != Cell.Inherit) Builder.Append("</color>");
-            if (style.Background != Cell.Inherit) Builder.Append("</mark>");
+            if (_backgrounds && style.Background != Cell.Inherit) Builder.Append("</mark>");
         }
 
         /// <summary>

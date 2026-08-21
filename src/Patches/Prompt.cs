@@ -64,7 +64,7 @@ namespace UwUTerm.Patches
 
         private static void Prefix(TerminalListAdapter __instance, ref string rawText, bool isPrompt, bool isMsgInput)
         {
-            if (!UwUTermPlugin.ColorizePrompt.Value) return;
+            if (!UwUTermPlugin.FeatureTerminal.Value) return;
             if (!isPrompt && !isMsgInput) return;
             if (string.IsNullOrEmpty(rawText)) return;
 

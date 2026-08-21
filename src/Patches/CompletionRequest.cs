@@ -34,7 +34,7 @@ namespace UwUTerm.Patches
         {
             // With the prompt left alone there is nothing to correct for, and the captured
             // prompt may be left over from before the setting was turned off.
-            if (!UwUTermPlugin.ColorizePrompt.Value) return true;
+            if (!UwUTermPlugin.FeatureTerminal.Value) return true;
 
             string prompt = Prompt.LastRawFor(__instance);
             if (string.IsNullOrEmpty(prompt)) return true;
@@ -72,7 +72,7 @@ namespace UwUTerm.Patches
         /// </summary>
         internal static bool TakeSingleMatch(Terminal terminal, byte[] zipOutput)
         {
-            if (!UwUTermPlugin.ColorizePrompt.Value) return false;
+            if (!UwUTermPlugin.FeatureTerminal.Value) return false;
 
             TerminalListAdapter adapter = terminal == null ? null : terminal.listAdapter;
             if (adapter == null) return false;

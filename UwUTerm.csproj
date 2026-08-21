@@ -84,6 +84,9 @@
       <HintPath>$(GameManaged)/UnityEngine.UI.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <!-- ZipFile, for unpacking the Windows neovim archive. -->
+    <Reference Include="System.IO.Compression" />
+    <Reference Include="System.IO.Compression.FileSystem" />
     <Reference Include="UnityEngine.TextCoreFontEngineModule">
       <HintPath>$(GameManaged)/UnityEngine.TextCoreFontEngineModule.dll</HintPath>
       <Private>false</Private>

@@ -57,6 +57,7 @@ namespace UwUTerm.Ui
         private Vector2 _iconAnchorMin, _iconAnchorMax, _iconPivot, _iconPosition, _iconSize;
         private Transform _clockParent;
         private int _clockOrder;
+        private Vector2 _clockAnchorMin, _clockAnchorMax, _clockPivot, _clockPosition, _clockSize;
         private Vector2 _taskBarMin, _taskBarMax, _taskBarAnchorMin, _taskBarAnchorMax, _taskBarSize, _taskBarPivot;
         private Vector2 _calendarAnchorMin, _calendarAnchorMax, _calendarPosition;
         private Vector2 _iconsMin, _iconsMax;
@@ -67,7 +68,7 @@ namespace UwUTerm.Ui
 
         internal static void Tick()
         {
-            bool wanted = UwUTermPlugin.SingleTopBar.Value;
+            bool wanted = UwUTermPlugin.FeatureDesktop.Value;
 
             if (!wanted)
             {
@@ -322,6 +323,16 @@ namespace UwUTerm.Ui
             _clockParent = _clock.parent;
             _clockOrder = _clock.GetSiblingIndex();
 
+            // Where it sat, not just what it hung from. A layout group positions its children,
+            // so a clock that has been inside one comes back carrying whatever position the
+            // group left it at - which on a bar with no layout group is wherever that happened
+            // to be, rather than the middle where it belongs.
+            _clockAnchorMin = _clock.anchorMin;
+            _clockAnchorMax = _clock.anchorMax;
+            _clockPivot = _clock.pivot;
+            _clockPosition = _clock.anchoredPosition;
+            _clockSize = _clock.sizeDelta;
+
             _taskBarAnchorMin = _taskBar.anchorMin;
             _taskBarAnchorMax = _taskBar.anchorMax;
             _taskBarMin = _taskBar.offsetMin;
@@ -384,6 +395,11 @@ namespace UwUTerm.Ui
 
                 _clock.SetParent(_clockParent, false);
                 _clock.SetSiblingIndex(_clockOrder);
+                _clock.anchorMin = _clockAnchorMin;
+                _clock.anchorMax = _clockAnchorMax;
+                _clock.pivot = _clockPivot;
+                _clock.anchoredPosition = _clockPosition;
+                _clock.sizeDelta = _clockSize;
             }
 
             if (_taskBar != null)

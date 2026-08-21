@@ -38,7 +38,7 @@ namespace UwUTerm.Patches
 
         private static bool Prefix(Terminal __instance)
         {
-            if (!UwUTermPlugin.EnableReadline.Value) return true;
+            if (!UwUTermPlugin.FeatureTerminal.Value) return true;
 
             Event e = Event.current;
             if (e == null || e.type != EventType.KeyDown) return true;

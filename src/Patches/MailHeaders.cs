@@ -41,7 +41,7 @@ namespace UwUTerm.Patches
 
         private static void Postfix(MailWindow __instance, int indexMail)
         {
-            if (!UwUTermPlugin.MailHeaders.Value) return;
+            if (!UwUTermPlugin.FeatureMail.Value) return;
 
             Hide();
             SweepCards(__instance);

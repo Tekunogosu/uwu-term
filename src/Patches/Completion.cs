@@ -99,7 +99,7 @@ namespace UwUTerm.Patches
             if (!empty && !listFiles && CompletionRequest.TakeSingleMatch(__instance, zipOutput))
                 return false;
 
-            if (!UwUTermPlugin.MenuComplete.Value) return true;
+            if (!UwUTermPlugin.FeatureTerminal.Value) return true;
             if (!listFiles || empty) return true;
 
             // Stale: the line moved on while this was in flight. Swallow it rather than

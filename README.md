@@ -123,3 +123,8 @@ warning for each hook it cannot find rather than failing to load.
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+The terminal screen model is derived from [XtermSharp](https://github.com/migueldeicaza/XtermSharp),
+itself a port of [xterm.js](https://github.com/xtermjs/xterm.js), both MIT. Their copyright
+notices are in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md), and every file carrying
+ported code names its origin in a header comment.

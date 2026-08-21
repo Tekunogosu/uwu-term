@@ -1,8 +1,10 @@
 bin/
 obj/
 
-# Decompiled game sources and the extracted in-game manual. Reference only -
-# this is the game's own copyrighted content and must never be committed.
+# Sources read while writing our own, never built: the game's decompiled code and the
+# extracted manual, which are its copyright and must never be committed, alongside
+# upstream libraries we port from rather than depend on. See CLAUDE.md for what is here
+# and how to fetch it again.
 refs/
 
 # Personal game path, see README

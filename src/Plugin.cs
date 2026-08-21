@@ -24,6 +24,11 @@ namespace UwUTerm
         internal static ConfigEntry<float> TerminalFontSize;
         internal static ConfigEntry<bool> TerminalFontFallback;
         internal static ConfigEntry<bool> ListFonts;
+        internal static ConfigEntry<bool> EnableScreen;
+        internal static ConfigEntry<float> ScreenPadding;
+        internal static ConfigEntry<string> CursorStyle;
+        internal static ConfigEntry<bool> CursorBlink;
+        internal static ConfigEntry<bool> ScreenDebug;
         internal static ConfigEntry<bool> MenuComplete;
         internal static ConfigEntry<string> CompletionSelectedColor;
         internal static ConfigEntry<bool> CompletionDebug;
@@ -115,6 +120,46 @@ namespace UwUTerm
             CompletionBackgroundAlpha = Config.Bind("Interface", "CompletionBackgroundAlpha", 0,
                 "Opacity, 0-255, of the completion strip. It gets a line of its own rather\n" +
                 "than covering anything, so it needs no backing.");
+
+            EnableScreen = Config.Bind("Screen", "EnableScreen", false,
+                "Draw the terminal as a character grid instead of as a list of text objects.\n" +
+                "\n" +
+                "The game gives every line its own text object, its own layout element and its\n" +
+                "own measurement pass, so what it costs to draw grows with how much has been\n" +
+                "printed, and a line's height - measured once, the first time it is shown - is\n" +
+                "then cached forever. This draws the visible rows as one mesh and computes a\n" +
+                "row's height from the font's own metrics, so it costs the same whether the\n" +
+                "scrollback holds fifty lines or fifty thousand, and cannot go stale.\n" +
+                "\n" +
+                "The game's own rows are hidden rather than removed, because they are still\n" +
+                "the model a submitted command is read out of and the one Readline edits.\n" +
+                "Turning this back off restores them immediately, without a restart.\n" +
+                "\n" +
+                "Unfinished: selecting text with the mouse still works on the hidden rows, so\n" +
+                "the highlight is invisible while the selection itself is real. Copy still\n" +
+                "copies what you selected.");
+
+            ScreenPadding = Config.Bind("Screen", "ScreenPadding", 10f,
+                "Pixels of breathing room between the terminal's edge and its text.\n" +
+                "\n" +
+                "Only applies when EnableScreen is on. Text starts at the very edge of the\n" +
+                "scroll area otherwise, where the window's own mask clips the first column.");
+
+            CursorStyle = Config.Bind("Screen", "CursorStyle", "block",
+                "Shape of the terminal cursor: block, bar or underline.\n" +
+                "\n" +
+                "A block covers the character and is drawn translucent so the letter reads\n" +
+                "through it. A bar sits before the character and an underline beneath it, both\n" +
+                "solid, since a thin translucent line is barely visible.\n" +
+                "\n" +
+                "All three are sized from the cell, so they follow whatever TerminalFont and\n" +
+                "TerminalFontSize are set to.");
+
+            CursorBlink = Config.Bind("Screen", "CursorBlink", true,
+                "Blink the cursor, half a second on and half off. Off leaves it lit.\n" +
+                "\n" +
+                "Only the terminal you are typing in draws a cursor either way - an unfocused\n" +
+                "one would otherwise sit there blinking alongside it with nothing to type into.");
 
             TerminalFontName = Config.Bind("Interface", "TerminalFont", "",
                 "Font to render the terminal in. Blank keeps the game's own.\n" +
@@ -325,6 +370,9 @@ namespace UwUTerm
             ReadlineDebug = Config.Bind("Diagnostics", "ReadlineDebug", false,
                 "Log word-movement maths.");
 
+            ScreenDebug = Config.Bind("Diagnostics", "ScreenDebug", false,
+                "Log when the grid screen takes over a terminal, and the grid size it chose.");
+
             ListFonts = Config.Bind("Diagnostics", "ListFonts", false,
                 "Log every directory TerminalFont searches, whether this game can read it, and\n" +
                 "the fonts in it. Printed once, whether set at startup or turned on while the\n" +
@@ -373,12 +421,15 @@ namespace UwUTerm
             // a game update, say - must not take the rest of the plugin down with it.
             Register("readline", () => _harmony.PatchAll(typeof(Readline)));
             Register("output", () => _harmony.PatchAll(typeof(Output)));
+            Register("line-submit", () => _harmony.PatchAll(typeof(LineSubmit)));
             Register("prompt", () => _harmony.PatchAll(typeof(Prompt)));
             Register("mail", () => _harmony.PatchAll(typeof(MailHeaders)));
             Register("history", () => History.Apply(_harmony));
             Register("completion", () => Completion.Apply(_harmony));
             Register("windows", () => WindowSnap.Apply(_harmony));
             Register("terminal-font", () => TerminalFont.Apply(_harmony));
+            Register("screen", () => ScreenTakeover.Apply(_harmony));
+            Register("screen-clipboard", () => ScreenClipboard.Apply(_harmony));
             Register("window-close", () => _harmony.PatchAll(typeof(WindowClose)));
             BindHotkeys();
             PruneOrphanedSettings(Config, "settings");
@@ -490,6 +541,8 @@ namespace UwUTerm
         private void Update()
         {
             Patches.WindowSnap.Tick();
+            Patches.ScreenTakeover.Tick();
+            Ui.PrimaryPaste.Tick();
             Patches.Completion.Tick();
             PollConfigFile();
         }

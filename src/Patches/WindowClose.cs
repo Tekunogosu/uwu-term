@@ -23,6 +23,7 @@ namespace UwUTerm.Patches
             HistorySearch.Dismiss(__instance);
             Completion.Dismiss(__instance);
             MailHeaders.Dismiss(__instance);
+            ScreenTakeover.Dismiss(__instance);
         }
     }
 }

@@ -22,11 +22,6 @@ namespace UwUTerm.Patches
     [HarmonyPatch(typeof(Terminal), "OnGUI")]
     internal static class Readline
     {
-        // Konsole (and so yakuake) counts these as part of a word, which keeps paths and
-        // flags moving as one unit. Readline's own M-b is alphanumeric-only, which stops at
-        // every slash - worse in a game where half of what you type is a path.
-        private const string WordChars = ":@-./_~";
-
         private const int UndoDepth = 64;
 
         private struct Snapshot
@@ -449,7 +444,7 @@ namespace UwUTerm.Patches
 
         // ---- word boundaries ---------------------------------------------------------
 
-        private static bool IsWordChar(char c) => char.IsLetterOrDigit(c) || WordChars.IndexOf(c) >= 0;
+        private static bool IsWordChar(char c) => UwUTerm.Screen.Words.IsWord(c);
 
         private static bool IsPart(char c, bool whitespaceOnly) =>
             whitespaceOnly ? !char.IsWhiteSpace(c) : IsWordChar(c);

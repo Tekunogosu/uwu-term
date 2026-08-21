@@ -91,11 +91,29 @@ namespace UwUTerm.Patches
             return path;
         }
 
-        private static bool _running;
-
-        /// <summary>The screen drawing for a terminal, or null when the game still owns it.</summary>
+        /// <summary>The screen drawing for a terminal, or null before it has been laid out.</summary>
         internal static ScreenView ViewFor(TerminalListAdapter adapter) =>
             adapter != null && Views.TryGetValue(adapter, out ScreenView view) ? view : null;
+
+        /// <summary>
+        /// A line changed somewhere other than at the end.
+        ///
+        /// The screen notices output arriving and typing by watching the last line, which is
+        /// everything the terminal itself does. Search highlighting rewrites lines further up,
+        /// and nothing about that is visible from the end of the list.
+        /// </summary>
+        internal static void NoteLineChanged(TerminalListAdapter adapter, int line) =>
+            ViewFor(adapter)?.NoteLineChanged(line);
+
+        /// <summary>Bring a line into view - what stepping to a search match needs.</summary>
+        internal static void ScrollToLine(TerminalListAdapter adapter, int line) =>
+            ViewFor(adapter)?.ScrollToLine(line);
+
+        /// <summary>Whether the grid is drawing this terminal. Anything that would otherwise
+        /// have to update the game's own rows asks first.</summary>
+        internal static bool Owns(TerminalListAdapter adapter) => ViewFor(adapter) != null;
+
+        private static bool _running;
 
         internal static void Tick()
         {
@@ -106,8 +124,7 @@ namespace UwUTerm.Patches
             }
 
             // Rows are pooled, so a terminal sitting idle builds none and the row hook would
-            // never fire for it. Switching the setting on has to go and find what is already
-            // open, which is a scene scan - done once per switch, never per frame.
+            // never fire for it. Switching back on has to go and find what is already open.
             if (!_running)
             {
                 _running = true;
@@ -136,8 +153,7 @@ namespace UwUTerm.Patches
             }
         }
 
-        /// <summary>Turning the setting off puts the game's own rows back, which is why they
-        /// were only hidden.</summary>
+        /// <summary>Give the game's own rows back, which is why they were only hidden.</summary>
         private static void TearDown()
         {
             foreach (KeyValuePair<TerminalListAdapter, ScreenView> pair in Views) pair.Value.Destroy();

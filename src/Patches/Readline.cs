@@ -434,6 +434,13 @@ namespace UwUTerm.Patches
             a.Data[last].line = line.Substring(0, min + 1) + input;
             a.charIndexInput = min + Mathf.Clamp(point, 0, input.Length);
 
+            // isCaret marks this as the line being edited, which is how the grid knows where to
+            // draw the cursor. The game sets it while rebuilding the row's text mesh - and when
+            // the grid is drawing, that mesh is invisible, so rebuilding it on every keystroke
+            // is exactly the cost the grid exists to stop paying. Only the flag is wanted.
+            a.Data[last].isCaret = true;
+            if (ScreenTakeover.Owns(a)) return;
+
             TerminalListItemViewsHolder view = a.GetLastViewLine();
             if (view == null) return;
 

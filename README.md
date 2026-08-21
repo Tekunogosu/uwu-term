@@ -11,7 +11,24 @@ changes what is sent to the server beyond normalising `ls` flags it would have r
 
 ## Features
 
-**Readline editing** in the terminal - the bindings you already have muscle memory for.
+**A rebuilt terminal.** The screen is drawn as a character grid rendered in one pass, so
+drawing costs the same whether the scrollback holds fifty lines or fifty thousand. Line
+height comes from the font's own metrics, wide characters take two columns, and long lines
+wrap and re-wrap cleanly when the window is resized.
+
+**Selection and clipboard**, the way a Linux desktop does it.
+
+| | |
+|---|---|
+| Drag | selects, and fills the primary buffer |
+| Middle-click | pastes the primary buffer — in a terminal or any other text field in the game |
+| Double-click | selects a word; drag continues by words |
+| Triple-click | selects a line; drag continues by lines |
+| `Ctrl+Shift+C` / `Ctrl+Shift+V` | the system clipboard, shared with the rest of your machine |
+
+The two buffers are independent, so selecting text never overwrites what you copied.
+
+**Readline editing** in the terminal — the bindings you already have muscle memory for.
 
 | | |
 |---|---|
@@ -19,34 +36,34 @@ changes what is sent to the server beyond normalising `ls` flags it would have r
 | Kill | `C-k` to end, `C-u` to start, `C-w` word back (whitespace), `M-Backspace`/`C-Backspace` word back, `M-d` word forward, `C-d` delete char |
 | Yank | `C-y` paste last kill, `M-y` cycle the kill ring |
 | Edit | `C-t` swap chars, `M-t` swap words, `M-u`/`M-l`/`M-c` case, `C-z` undo, `C-l` clear |
-| History | `C-p` previous, `C-n` next |
+| History | `C-p` previous, `C-n` next, `C-r`/`C-s` incremental search |
+| Find | `C-f` search the scrollback |
 
-Consecutive kills accumulate into one kill-ring entry, directionally, as readline does.
-The ring is shared across terminal windows, so you can kill in one and yank in another.
+Consecutive kills accumulate into one kill-ring entry, directionally, as readline does. The
+ring is shared across terminal windows, so you can kill in one and yank in another.
 
-**Configurable prompt** - a template with named colour palettes, separate local and
-remote variants, and per-role colours. See the `[Prompt]` section of the config, which
-documents itself.
+**Persistent history** — one history shared by every terminal and kept across sessions, with
+bash's `ignorespace` and `ignoredups` and a regex for commands you never want recorded.
 
-**Terminal font** - render the terminal in any font on your machine. Copy the `.ttf` or
-`.otf` into `BepInEx/fonts/` and name it in `TerminalFont`:
+**Tab completion** as a menu. Tab cycles the candidates, Shift+Tab steps back, Escape puts
+back what you had typed. Command names are left out of completions for arguments.
 
-```sh
-cp /usr/share/fonts/hack/Hack-Regular.ttf "<game>/BepInEx/fonts/"
-```
+**Configurable prompt** — a template with named colour palettes, separate local and remote
+variants, and per-role colours. The `[Prompt]` section of the config documents itself.
 
-The copy is what makes it work. Steam runs the game inside a container carrying its own
-`/usr/share/fonts` - six DejaVu faces and nothing else - so the fonts installed on the
-machine are out of reach from in there, while `BepInEx/fonts` is reachable because the
-game is running out of it. The game's own font stays on as a fallback, so glyphs your
-font lacks still render instead of turning into empty boxes.
+**Any font on your machine.** Copy a `.ttf` or `.otf` into `BepInEx/fonts/` and name it in
+`TerminalFont`. Glyphs it doesn't have fall back to the game's own font, and the cursor can
+be a block, bar or underline.
 
-**Window snapping** - drag a window to a screen edge for half, a corner for a quarter,
-the top to fill. Hold Ctrl (configurable) to drag a window from anywhere, not just its
-titlebar.
+**Window snapping** — drag a window to a screen edge for half, a corner for a quarter, the
+top to fill. `Ctrl+Alt+Shift` with the arrows or `1`-`4` snaps from the keyboard. Hold Ctrl
+to drag a window from anywhere, not just its titlebar.
 
-**`ls` tidying** - bare `ls` output is reflowed into columns, and `ls -al` / `ls -a -l`
-are rewritten to the `-la` the server actually accepts.
+**Mail headers** — a "headers" link on each message showing sender, recipient and direction,
+with each message in a thread drawn as its own card.
+
+**`ls` tidying** — bare `ls` output is reflowed into columns, and `ls -al` / `ls -a -l` are
+rewritten to the `-la` the server accepts.
 
 ## Install
 
@@ -60,8 +77,9 @@ Grey Hack calls `RestartAppIfNecessary` on startup, so launching the game outsid
 makes it re-exec itself through the Steam client and drop the `LD_PRELOAD` that BepInEx
 needs. Use the launch option rather than running `run_bepinex.sh` directly.
 
-Settings land in `BepInEx/config/com.tekunogosu.uwuterm.cfg` after the first run. The
-plugin watches that file, so edits apply without restarting the game.
+Settings land in `BepInEx/config/com.tekunogosu.uwuterm.cfg` after the first run, with
+keybinds in `com.tekunogosu.uwuterm.hotkeys.cfg`. Both are watched, so edits apply without
+restarting the game.
 
 ## Build
 
@@ -92,32 +110,28 @@ the game's private members are reachable at compile time.
 ### Reference sources
 
 `tools/decompile.sh` writes readable C# for the terminal and window classes into `refs/`
-(installing `ilspycmd` if needed). That directory is gitignored on purpose - it holds the
+(installing `ilspycmd` if needed). That directory is gitignored on purpose — it holds the
 game's own decompiled code, which is not ours to redistribute.
 
 ## How it hooks in
 
 - **`Terminal.OnGUI`** is the game's keyboard handler, an `Event.current` switch. Plain
-  `Ctrl+letter` and `Alt+letter` are unclaimed, and unhandled keys fall through to a
-  character filter that rejects control characters - so readline bindings can simply be
-  added.
-- **`TerminalListAdapter`** is the line editor: an OSA recycling list whose last row is
-  editable. Line text is `Data[Data.Count - 1].line`, and the caret sits *after*
-  `charIndexInput`, with `minPosCursor` marking where the editable region starts.
-- **The prompt is patched at `TerminalListAdapter.AddText`**, not `Terminal.AddTexto`.
-  `AddTexto` decides whether a line is an input line via `texto.Equals(pwd)`; rewriting
-  it there would fail that comparison, leave `minPosCursor` at 0, and let the caret walk
-  into the prompt - or send the prompt to the server as part of the command.
+  `Ctrl+letter` and `Alt+letter` are unclaimed, so readline bindings are simply added.
+- **`TerminalListAdapter`** holds the scrollback and the line being edited. UwUTerm draws
+  from that model and leaves the game's own rows in place but hidden, since they are still
+  what a submitted command is read out of.
+- **The prompt is patched at `TerminalListAdapter.AddText`**, after the game has decided a
+  line is an input line, so the caret and the text sent to the server are unaffected.
 - **The shell is server-side.** Commands go out through `SendInputUserToServer`; output
   comes back through `AddTexto`. Those two choke points are what `ls` handling uses.
 - **Windows are `uDialog` instances.** Moving runs through `uDialog.OnTitleDrag`, resizing
-  through `uDialog_ResizeListener` - separate paths, which is what lets snapping trigger
+  through `uDialog_ResizeListener` — separate paths, which is what lets snapping trigger
   on move without firing on resize.
 
 ## Compatibility
 
 Written against Grey Hack as of 2026-08. It patches by type and method name, so a game
-update that renames or reshapes those will break specific features - the plugin logs a
+update that renames or reshapes those will break specific features — the plugin logs a
 warning for each hook it cannot find rather than failing to load.
 
 ## License

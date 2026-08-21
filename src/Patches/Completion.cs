@@ -33,10 +33,7 @@ namespace UwUTerm.Patches
             internal int OriginalPoint;
             internal RectTransform Viewport;
             internal Vector2 ViewportOffset;
-            internal System.Action Scroller;
         }
-
-        private const int ScrollSettleFrames = 4;
 
         private static readonly Dictionary<Terminal, Menu> Menus = new Dictionary<Terminal, Menu>();
         private static HashSet<string> _learned;
@@ -46,9 +43,6 @@ namespace UwUTerm.Patches
         // the count at the time it was made, and an answer that no longer matches is stale.
         private static readonly Dictionary<Terminal, int> Submitted = new Dictionary<Terminal, int>();
         private static readonly Dictionary<Terminal, int> Requested = new Dictionary<Terminal, int>();
-
-        private static TerminalListAdapter _pendingScroll;
-        private static int _pendingFrames;
 
         internal static bool IsActive(Terminal terminal) => Menus.ContainsKey(terminal);
 
@@ -97,8 +91,16 @@ namespace UwUTerm.Patches
         /// append - in favour of the menu.</summary>
         private static bool OnCandidates(Terminal __instance, byte[] zipOutput, bool listFiles)
         {
+            bool empty = zipOutput == null || zipOutput.Length == 0;
+
+            // A single match comes back as the finished line rather than a list, and taking it
+            // has to happen whether or not the menu is switched on - it is the drawn prompt
+            // being protected, not the menu.
+            if (!empty && !listFiles && CompletionRequest.TakeSingleMatch(__instance, zipOutput))
+                return false;
+
             if (!UwUTermPlugin.MenuComplete.Value) return true;
-            if (!listFiles || zipOutput == null || zipOutput.Length == 0) return true;
+            if (!listFiles || empty) return true;
 
             // Stale: the line moved on while this was in flight. Swallow it rather than
             // letting the stock handler paste a completion into whatever is on screen now.
@@ -114,14 +116,15 @@ namespace UwUTerm.Patches
             if (UwUTermPlugin.CompletionDebug.Value)
                 UwUTermPlugin.Log.LogInfo("completion payload: " + payload.Replace("\n", " | "));
 
-            string[] candidates = payload.Split('\n');
             var cleaned = new List<string>();
-            foreach (string candidate in candidates)
+            foreach (string candidate in payload.Split('\n'))
             {
                 string trimmed = candidate.Trim();
                 if (trimmed.Length > 0) cleaned.Add(trimmed);
             }
             if (cleaned.Count == 0) return true;
+
+            LearnCommands(cleaned);
 
             TerminalListAdapter adapter = __instance.listAdapter;
             if (adapter == null) return true;
@@ -172,16 +175,12 @@ namespace UwUTerm.Patches
         {
             // Completing the first word is the one time you do want every command - and the
             // one time the answer tells us what the commands actually are.
-            if (head.Trim().Length == 0)
-            {
-                LearnCommands(candidates);
-                return candidates;
-            }
+            if (head.Trim().Length == 0) return candidates;
 
             var withoutCommands = new List<string>();
             foreach (string candidate in candidates)
             {
-                if (UwUTermPlugin.FilterCommandNames.Value && IsCommand(candidate)) continue;
+                if (UwUTermPlugin.FilterCommandNames.Value && IsCommand(terminal, candidate)) continue;
 
                 // .exe here means a windowed program, which is never an argument to anything.
                 if (HasIgnoredExtension(candidate)) continue;
@@ -194,21 +193,36 @@ namespace UwUTerm.Patches
         }
 
         /// <summary>
-        /// A completion in the command slot answers with exactly the commands on that
-        /// machine and nothing else, so the first time you Tab on an empty prompt we learn
-        /// the real list - including anything you have built into /bin, which no hardcoded
-        /// list could know about. Until then the configured names stand in.
+        /// Learn command names from a reply that names them as paths.
+        ///
+        /// The server sometimes answers with entries like "/bin/ls" rather than bare names,
+        /// and anything living in /bin is a command by definition. Learning only from those is
+        /// what keeps this honest: the reply for a bare command slot is everything in scope,
+        /// working directory included, so learning from that taught it that every local file
+        /// was a command - and it then hid those same files from argument completions, which
+        /// is the one place they are what you actually want.
         /// </summary>
         private static void LearnCommands(List<string> candidates)
         {
-            _learned = new HashSet<string>(candidates);
-            if (UwUTermPlugin.CompletionDebug.Value)
-                UwUTermPlugin.Log.LogInfo($"completion: learned {candidates.Count} command names");
+            int learned = 0;
+            foreach (string candidate in candidates)
+            {
+                if (!candidate.StartsWith("/bin/", System.StringComparison.Ordinal)) continue;
+
+                string name = candidate.Substring("/bin/".Length);
+                if (name.Length == 0 || name.IndexOf('/') >= 0) continue;
+
+                if (_learned == null) _learned = new HashSet<string>();
+                if (_learned.Add(name)) learned++;
+            }
+
+            if (learned > 0 && UwUTermPlugin.CompletionDebug.Value)
+                UwUTermPlugin.Log.LogInfo($"completion: learned {learned} command names from /bin");
         }
 
-        private static bool IsCommand(string candidate) =>
-            (_learned != null && _learned.Contains(candidate)) ||
-            Contains(UwUTermPlugin.KnownCommands.Value, candidate);
+        private static bool IsCommand(Terminal terminal, string candidate) =>
+            Contains(UwUTermPlugin.KnownCommands.Value, candidate) ||
+            (_learned != null && _learned.Contains(candidate));
 
         private static bool HasIgnoredExtension(string candidate)
         {
@@ -289,37 +303,6 @@ namespace UwUTerm.Patches
             if (menu.Viewport == null) return;
 
             menu.Viewport.offsetMin = menu.ViewportOffset;
-            menu.Scroller?.Invoke();
-        }
-
-        /// <summary>
-        /// Resizing the viewport leaves the list where it was, which puts the prompt off the
-        /// bottom. Scrolling right away is not enough: OSA only notices the size change on
-        /// its own next Update and reflows then, so a scroll issued now is measured against
-        /// the old layout and drifts once the reflow lands. Re-issuing it for a few frames
-        /// lets it settle on the real one.
-        /// </summary>
-        private static void ScrollToEnd(TerminalListAdapter adapter)
-        {
-            if (adapter == null) return;
-            _pendingScroll = adapter;
-            _pendingFrames = ScrollSettleFrames;
-            Pin(adapter);
-        }
-
-        internal static void Tick()
-        {
-            if (_pendingFrames <= 0 || _pendingScroll == null) return;
-
-            _pendingFrames--;
-            Pin(_pendingScroll);
-            if (_pendingFrames == 0) _pendingScroll = null;
-        }
-
-        private static void Pin(TerminalListAdapter adapter)
-        {
-            if (adapter.Data.Count == 0) return;
-            adapter.ScrollTo(adapter.Data.Count - 1, 1f, 1f);
         }
 
         private static void Show(TerminalListAdapter adapter, Menu menu)
@@ -388,9 +371,7 @@ namespace UwUTerm.Patches
             {
                 menu.Viewport = viewport;
                 menu.ViewportOffset = viewport.offsetMin;
-                menu.Scroller = () => ScrollToEnd(adapter);
                 viewport.offsetMin = new Vector2(viewport.offsetMin.x, viewport.offsetMin.y + height);
-                ScrollToEnd(adapter);
             }
 
             menu.Panel = Overlay.CreateBottom(parent, sample?.font, size, 6f, height,

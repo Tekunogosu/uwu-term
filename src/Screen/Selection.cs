@@ -41,17 +41,6 @@ namespace UwUTerm.Screen
             else { from = Anchor; to = Head; }
         }
 
-        internal bool Covers(int line, int rune)
-        {
-            if (!Exists) return false;
-
-            Ordered(out ScreenPoint from, out ScreenPoint to);
-            if (line < from.Line || line > to.Line) return false;
-            if (line == from.Line && rune < from.Rune) return false;
-            if (line == to.Line && rune >= to.Rune) return false;
-            return true;
-        }
-
         /// <summary>The selected columns on one line, as a half-open range of runes. The end
         /// is int.MaxValue when the selection runs past what the line holds.</summary>
         internal bool RunesOn(int line, out int first, out int last)

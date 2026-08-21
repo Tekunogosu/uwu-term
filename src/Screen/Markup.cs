@@ -7,13 +7,6 @@ namespace UwUTerm.Screen
         internal uint Foreground;
         internal uint Background;
         internal CellFlags Flags;
-
-        internal static Style Default => new Style
-        {
-            Foreground = Cell.Inherit,
-            Background = Cell.Inherit,
-            Flags = CellFlags.None,
-        };
     }
 
     /// <summary>

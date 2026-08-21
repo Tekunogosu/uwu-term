@@ -66,6 +66,18 @@ namespace UwUTerm.Screen
             row >= 0 && row < _origins.Length ? _origins[row] : new RowOrigin { Line = -1 };
 
         /// <summary>
+        /// How many display rows sit above a line. Where that line begins in the scrollback,
+        /// measured in rows rather than lines, which is the unit scrolling works in.
+        /// </summary>
+        internal int RowsBefore(int lineIndex)
+        {
+            int rows = 0;
+            int limit = lineIndex < _heights.Count ? lineIndex : _heights.Count;
+            for (int i = 0; i < limit; i++) rows += _heights[i];
+            return rows;
+        }
+
+        /// <summary>
         /// The nearest row carrying text, at or above the one asked for.
         ///
         /// Dragging below the last line of output lands on blank rows that map to nothing. A
@@ -269,15 +281,13 @@ namespace UwUTerm.Screen
         {
             if (row < 0 || row >= Rows) return;
 
-            if (_origins[row].Line != lineIndex || _origins[row].RuneCount == 0)
+            if (_origins[row].Line != lineIndex)
             {
-                if (_origins[row].Line != lineIndex)
-                {
-                    _origins[row].Line = lineIndex;
-                    _origins[row].FirstRune = visibleColumn;
-                    _origins[row].RuneCount = 0;
-                }
+                _origins[row].Line = lineIndex;
+                _origins[row].FirstRune = visibleColumn;
+                _origins[row].RuneCount = 0;
             }
+
             _origins[row].RuneCount++;
         }
 
@@ -294,17 +304,17 @@ namespace UwUTerm.Screen
         {
             if (_heights.Count > lines.Count) _heights.RemoveRange(lines.Count, _heights.Count - lines.Count);
 
+            // Clamped to the end of what has been measured: starting past it would append
+            // heights at the wrong index and silently shift every line's position afterwards.
             int from = _dirtyFrom < 0 ? 0 : _dirtyFrom;
+            if (from > _heights.Count) from = _heights.Count;
+
             for (int i = from; i < lines.Count; i++)
             {
                 int height = Height(lines[i]);
                 if (i < _heights.Count) _heights[i] = height;
                 else _heights.Add(height);
             }
-
-            // Lines before the dirty mark keep the heights they already had, but anything
-            // appended past the end of the cache still has to be measured.
-            for (int i = _heights.Count; i < lines.Count; i++) _heights.Add(Height(lines[i]));
 
             _dirtyFrom = lines.Count;
 

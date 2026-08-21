@@ -184,10 +184,21 @@ namespace UwUTerm.Patches
             return sb.ToString();
         }
 
-        /// <summary>Visible width of the terminal in characters. The font is monospace,
-        /// so one glyph's advance divides the text rect evenly.</summary>
+        /// <summary>
+        /// Visible width of the terminal in characters.
+        ///
+        /// The screen already decided this - it is the number of columns it laid the grid out
+        /// in, arrived at from the same font metrics it draws with and after the padding it
+        /// leaves at the edges. Measuring a glyph here again would be a second answer to a
+        /// question that already has one, and the two would differ by however much the padding
+        /// happens to be.
+        /// </summary>
         private static int TerminalWidth(Terminal terminal)
         {
+            Ui.ScreenView screen = ScreenTakeover.ViewFor(terminal.listAdapter);
+            if (screen != null && screen.Columns >= 2) return Mathf.Clamp(screen.Columns, 20, 500);
+
+            // No grid, so the game's rows are the screen and one of them has to be measured.
             TerminalListAdapter adapter = terminal.listAdapter;
             if (adapter == null || adapter.Data == null || adapter.Data.Count == 0) return FallbackColumns;
 

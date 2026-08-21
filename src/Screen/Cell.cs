@@ -54,11 +54,6 @@ namespace UwUTerm.Screen
             Flags = CellFlags.None,
             Width = 1,
         };
-
-        internal bool SameStyle(ref Cell other) =>
-            Foreground == other.Foreground &&
-            Background == other.Background &&
-            Flags == other.Flags;
     }
 
     internal static class RuneWidth

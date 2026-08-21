@@ -55,7 +55,6 @@ namespace UwUTerm
         internal static ConfigEntry<string> PromptPaletteRemote;
         internal static ConfigEntry<string> PromptSym;
         internal static ConfigEntry<string> PromptSymRemote;
-        internal static ConfigEntry<bool> ReadlineDebug;
         internal static ConfigEntry<bool> NormalizeLsFlags;
         internal static ConfigEntry<bool> EnableWindowSnap;
         internal static ConfigEntry<bool> SnapTopMaximizes;
@@ -121,29 +120,23 @@ namespace UwUTerm
                 "Opacity, 0-255, of the completion strip. It gets a line of its own rather\n" +
                 "than covering anything, so it needs no backing.");
 
-            EnableScreen = Config.Bind("Screen", "EnableScreen", false,
-                "Draw the terminal as a character grid instead of as a list of text objects.\n" +
+            EnableScreen = Config.Bind("Screen", "EnableScreen", true,
+                "Draw the terminal as a character grid. This is what UwUTerm's terminal is.\n" +
                 "\n" +
-                "The game gives every line its own text object, its own layout element and its\n" +
-                "own measurement pass, so what it costs to draw grows with how much has been\n" +
-                "printed, and a line's height - measured once, the first time it is shown - is\n" +
-                "then cached forever. This draws the visible rows as one mesh and computes a\n" +
-                "row's height from the font's own metrics, so it costs the same whether the\n" +
-                "scrollback holds fifty lines or fifty thousand, and cannot go stale.\n" +
+                "Turning it off hands drawing back to the game's own screen, which exists to\n" +
+                "make the two comparable when something looks wrong - the grid is a rewrite of\n" +
+                "how the terminal is drawn, and being able to see the old behaviour beside it\n" +
+                "is worth more than the handful of branches it costs to keep.\n" +
                 "\n" +
-                "The game's own rows are hidden rather than removed, because they are still\n" +
-                "the model a submitted command is read out of and the one Readline edits.\n" +
-                "Turning this back off restores them immediately, without a restart.\n" +
-                "\n" +
-                "Unfinished: selecting text with the mouse still works on the hidden rows, so\n" +
-                "the highlight is invisible while the selection itself is real. Copy still\n" +
-                "copies what you selected.");
+                "Selection, the cursor, scrolling and the two clipboards belong to the grid and\n" +
+                "go with it. Readline editing, the prompt, history, completion and window\n" +
+                "snapping do not care either way.");
 
             ScreenPadding = Config.Bind("Screen", "ScreenPadding", 10f,
                 "Pixels of breathing room between the terminal's edge and its text.\n" +
                 "\n" +
-                "Only applies when EnableScreen is on. Text starts at the very edge of the\n" +
-                "scroll area otherwise, where the window's own mask clips the first column.");
+                "Text starts at the very edge of the scroll area otherwise, where the window's\n" +
+                "own mask clips the first column.");
 
             CursorStyle = Config.Bind("Screen", "CursorStyle", "block",
                 "Shape of the terminal cursor: block, bar or underline.\n" +
@@ -230,20 +223,21 @@ namespace UwUTerm
                 "ifconfig, iwconfig, iwlist, kill, ls, mkdir, mv, nmap, nslookup, passwd, " +
                 "ping, ps, pwd, reboot, rm, scanlib, shutdown, smtp_user_list, ssh, sudo, " +
                 "touch, useradd, userdel, whoami, whois",
-                "Names treated as commands by the filter above.\n" +
+                "Extra names treated as commands by the filter above.\n" +
                 "\n" +
-                "This is only a starting point. Completing on an empty prompt asks the server\n" +
-                "for the command slot, and the answer is the real command list for that\n" +
-                "machine - so one Tab on a blank line teaches the filter everything actually\n" +
-                "installed there, custom binaries included. This list covers you until then.");
+                "The real list is read from /bin on the machine itself, so anything installed\n" +
+                "there counts without being named here. This covers the rest - names that are\n" +
+                "commands but do not live in /bin, or a machine whose /bin cannot be read.");
 
             IgnoreArgumentExtensions = Config.Bind("Input", "IgnoreArgumentExtensions", ".exe",
                 "File extensions never offered when completing an argument. .exe is a\n" +
                 "windowed program - something you launch, never something you pass to\n" +
                 "another command. Completing the first word still offers them.");
 
-            CompletionDebug = Config.Bind("Diagnostics", "CompletionDebug", true,
-                "Log the raw candidate list the server sends back for a Tab completion.");
+            CompletionDebug = Config.Bind("Diagnostics", "CompletionDebug", false,
+                "Log what Tab asks the server to complete, the candidates that come back, and\n" +
+                "which of them survive filtering. Several lines per keypress - on only while\n" +
+                "working out why a particular completion behaves the way it does.");
 
             MailHeaders = Config.Bind("Mail", "ShowHeaderLink", true,
                 "Add a \"headers\" link to each message in the mail client, showing sender,\n" +
@@ -367,8 +361,6 @@ namespace UwUTerm
             PromptSymRemote = Config.Bind("Prompt", "SymRemote", "",
                 "Overlays Sym when remote - only the roles listed here change.");
 
-            ReadlineDebug = Config.Bind("Diagnostics", "ReadlineDebug", false,
-                "Log word-movement maths.");
 
             ScreenDebug = Config.Bind("Diagnostics", "ScreenDebug", false,
                 "Log when the grid screen takes over a terminal, and the grid size it chose.");
@@ -426,6 +418,7 @@ namespace UwUTerm
             Register("mail", () => _harmony.PatchAll(typeof(MailHeaders)));
             Register("history", () => History.Apply(_harmony));
             Register("completion", () => Completion.Apply(_harmony));
+            Register("completion-request", () => _harmony.PatchAll(typeof(CompletionRequest)));
             Register("windows", () => WindowSnap.Apply(_harmony));
             Register("terminal-font", () => TerminalFont.Apply(_harmony));
             Register("screen", () => ScreenTakeover.Apply(_harmony));
@@ -543,7 +536,6 @@ namespace UwUTerm
             Patches.WindowSnap.Tick();
             Patches.ScreenTakeover.Tick();
             Ui.PrimaryPaste.Tick();
-            Patches.Completion.Tick();
             PollConfigFile();
         }
 

@@ -44,25 +44,9 @@ namespace UwUTerm.Patches
         private const int AtlasPadding = 9;
         private const int AtlasSize = 1024;
 
-        private const int PruneThreshold = 256;
-
-        private struct Origin
-        {
-            internal TMP_FontAsset Font;
-            internal float Size;
-        }
-
         private static TMP_FontAsset _asset;
         private static string _builtFrom;
         private static bool _listed;
-
-        // Rows are pooled and recycled, so this holds a few dozen entries per terminal
-        // rather than growing with the scrollback.
-        private static readonly Dictionary<TMP_Text, Origin> Rows = new Dictionary<TMP_Text, Origin>();
-
-        // The lists whose rows we have restyled, so their cached row heights can be thrown
-        // away when the font changes under them.
-        private static readonly List<TerminalListAdapter> Lists = new List<TerminalListAdapter>();
 
         // The Font objects we handed to TMP, and the file bytes each one stands for.
         private static readonly Dictionary<Font, byte[]> Sources = new Dictionary<Font, byte[]>();
@@ -80,17 +64,6 @@ namespace UwUTerm.Patches
 
             harmony.Patch(load, prefix: new HarmonyMethod(
                 typeof(TerminalFont).GetMethod(nameof(BeforeLoadFontFace),
-                    BindingFlags.Static | BindingFlags.NonPublic)));
-
-            MethodInfo row = AccessTools.Method(typeof(TerminalListAdapter), "CreateViewsHolder");
-            if (row == null)
-            {
-                UwUTermPlugin.Log.LogWarning("font: TerminalListAdapter.CreateViewsHolder not found");
-                return;
-            }
-
-            harmony.Patch(row, postfix: new HarmonyMethod(
-                typeof(TerminalFont).GetMethod(nameof(OnRowCreated),
                     BindingFlags.Static | BindingFlags.NonPublic)));
 
             EnsureFontFolder();
@@ -126,107 +99,29 @@ namespace UwUTerm.Patches
             return false;
         }
 
-        /// <summary>Every terminal row is built here, so this is the one place a row can be
-        /// caught before it has drawn anything.</summary>
-        private static void OnRowCreated(TerminalListAdapter __instance, TerminalListItemViewsHolder __result)
-        {
-            if (__result == null || __result.lineText == null) return;
-
-            Prune();
-            if (__instance != null && !Lists.Contains(__instance)) Lists.Add(__instance);
-            Dress(__result.lineText);
-        }
-
-        /// <summary>Closing a terminal destroys its rows without telling us, so the table
-        /// would otherwise keep an entry per row for every terminal ever opened. Rows are
-        /// pooled, so a live terminal contributes a few dozen and the threshold is only
-        /// reached by accumulated dead ones.</summary>
-        private static void Prune()
-        {
-            if (Rows.Count < PruneThreshold) return;
-
-            var dead = new List<TMP_Text>();
-            foreach (KeyValuePair<TMP_Text, Origin> row in Rows)
-                if (row.Key == null) dead.Add(row.Key);
-
-            foreach (TMP_Text row in dead) Rows.Remove(row);
-
-            for (int i = Lists.Count - 1; i >= 0; i--)
-                if (Lists[i] == null) Lists.RemoveAt(i);
-        }
-
-        /// <summary>Rebuild against the new setting and restyle the rows already on screen.
-        /// Without this a font change would only reach rows created afterwards.</summary>
+        /// <summary>Drop the built asset so the next request builds against the new setting.
+        /// The screen notices the font changing under it and resizes itself.</summary>
         internal static void OnConfigReloaded()
         {
             ListOnce();
             _asset = null;
             _builtFrom = null;
-
-            var rows = new List<TMP_Text>(Rows.Keys);
-            foreach (TMP_Text text in rows)
-            {
-                Undress(text);
-                if (text != null) Dress(text);
-            }
-
-            Remeasure();
         }
 
         /// <summary>
-        /// A row's height is measured once, the first time it is shown, and cached on its
-        /// model - so text that has just changed size still sits in a box built for the old
-        /// size, which leaves a small font stranded in tall rows.
+        /// The font the terminal should draw in, or null to keep the one it has.
         ///
-        /// Refresh is the sanctioned way to say the whole list needs measuring again: the
-        /// terminal's own ChangeItemsCount override marks every model pending before handing
-        /// over to OSA, which re-runs the sizing pass. The end edge is held stationary so the
-        /// view stays where it was rather than jumping to the top.
+        /// The screen asks for this directly. It used to be pushed onto the game's rows for
+        /// the screen to read back off one of them, which meant a font could only arrive by
+        /// way of objects nothing draws any more - a path with no reason to exist once the
+        /// rows stopped being the picture.
         /// </summary>
-        private static void Remeasure()
-        {
-            foreach (TerminalListAdapter list in Lists)
-            {
-                if (list == null || list.Data == null || list.Data.Count == 0) continue;
-
-                try
-                {
-                    list.Refresh(contentPanelEndEdgeStationary: true);
-                }
-                catch (System.Exception e)
-                {
-                    UwUTermPlugin.Log.LogWarning("font: could not remeasure a terminal - " + e.Message);
-                }
-            }
-        }
-
-        // ---- per row -----------------------------------------------------------------
-
-        private static void Dress(TMP_Text text)
+        internal static TMP_FontAsset For(TMP_FontAsset fallback)
         {
             string wanted = UwUTermPlugin.TerminalFontName.Value.Trim();
-            if (wanted.Length == 0) { Undress(text); return; }
+            if (wanted.Length == 0) return null;
 
-            TMP_FontAsset asset = Resolve(wanted, text.font);
-            if (asset == null) return;
-
-            if (!Rows.ContainsKey(text))
-                Rows[text] = new Origin { Font = text.font, Size = text.fontSize };
-
-            text.font = asset;
-
-            float size = UwUTermPlugin.TerminalFontSize.Value;
-            if (size > 0f) text.fontSize = size;
-        }
-
-        private static void Undress(TMP_Text text)
-        {
-            if (!Rows.TryGetValue(text, out Origin origin)) return;
-            Rows.Remove(text);
-
-            if (text == null) return;
-            text.font = origin.Font;
-            text.fontSize = origin.Size;
+            return Resolve(wanted, fallback);
         }
 
         // ---- the asset ---------------------------------------------------------------

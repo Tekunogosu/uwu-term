@@ -117,7 +117,6 @@ namespace UwUTerm.Ui
                     $"screen: scrollbar {(view._bar == null ? "not found" : view._bar.name)}, " +
                     $"fixer {(view._fixer == null ? "not found" : "disabled")}");
 
-            if (UwUTermPlugin.ScreenDebug.Value) view.ReportTextObjects(viewport);
             return view;
         }
 
@@ -132,65 +131,34 @@ namespace UwUTerm.Ui
         /// </summary>
         private bool AdoptFontFrom(TerminalListAdapter adapter)
         {
+            // Asked only when the answer could have changed. GetLastViewLine falls back to
+            // scrolling the list and calling Canvas.ForceUpdateCanvases when the row it wants
+            // is not on screen, and doing that every frame would be both a stall and a fight
+            // with this screen's own scrolling.
+            string wantedKey = UwUTermPlugin.TerminalFontName.Value + "|" +
+                               UwUTermPlugin.TerminalFontSize.Value.ToString("R") + "|" +
+                               UwUTermPlugin.TerminalFontFallback.Value;
+
+            if (_label.font != null && wantedKey == _fontKey) return false;
+
             TMP_Text sample = adapter.GetLastViewLine()?.lineText;
             if (sample == null || sample.font == null) return false;
 
-            if (ReferenceEquals(_label.font, sample.font) &&
-                Mathf.Approximately(_label.fontSize, sample.fontSize)) return false;
+            // The game's own face is the default, and the fallback the chosen font falls
+            // through to for glyphs it has no answer for.
+            TMP_FontAsset wanted = TerminalFont.For(sample.font) ?? sample.font;
 
-            _label.font = sample.font;
-            _label.fontSize = sample.fontSize;
+            float size = UwUTermPlugin.TerminalFontSize.Value;
+            if (size <= 0f) size = sample.fontSize;
+
+            _fontKey = wantedKey;
+
+            if (ReferenceEquals(_label.font, wanted) && Mathf.Approximately(_label.fontSize, size))
+                return false;
+
+            _label.font = wanted;
+            _label.fontSize = size;
             return true;
-        }
-
-        /// <summary>
-        /// Every text object that could be drawing inside this terminal, with the alpha it
-        /// actually renders at once its CanvasGroups are taken into account. Two things
-        /// drawing the same characters look exactly like one thing drawing them twice, and
-        /// this is the only way to tell those apart from outside the game.
-        /// </summary>
-        private void ReportTextObjects(RectTransform viewport)
-        {
-            Transform root = viewport.parent != null ? viewport.parent : viewport;
-
-            foreach (TMP_Text text in root.GetComponentsInChildren<TMP_Text>(true))
-            {
-                if (ReferenceEquals(text, _label)) continue;
-
-                string path = text.name;
-                for (Transform p = text.transform.parent; p != null && p != root.parent; p = p.parent)
-                    path = p.name + "/" + path;
-
-                // A nested Canvas starts its own batch and does not inherit the CanvasGroup
-                // above it, so one sitting between a row and the group we set would leave the
-                // row drawing at full opacity while the arithmetic below still says zero.
-                string nested = NestedCanvas(text.transform, root.parent);
-
-                UwUTermPlugin.Log.LogInfo(
-                    $"screen:   text '{path}' active={text.gameObject.activeInHierarchy} " +
-                    $"enabled={text.enabled} alpha={EffectiveAlpha(text.transform, root.parent):F2} " +
-                    $"canvasBetween={nested} colourAlpha={text.color.a:F2} " +
-                    $"chars={(text.text == null ? 0 : text.text.Length)}");
-            }
-        }
-
-        private static string NestedCanvas(Transform from, Transform stopAt)
-        {
-            for (Transform t = from; t != null && t != stopAt; t = t.parent)
-                if (t.GetComponent<Canvas>() != null) return t.name;
-
-            return "none";
-        }
-
-        private static float EffectiveAlpha(Transform from, Transform stopAt)
-        {
-            float alpha = 1f;
-            for (Transform t = from; t != null && t != stopAt; t = t.parent)
-            {
-                CanvasGroup group = t.GetComponent<CanvasGroup>();
-                if (group != null) alpha *= group.alpha;
-            }
-            return alpha;
         }
 
         /// <summary>The scrollbar hangs off the same scroll view as the rows, so the search
@@ -307,7 +275,50 @@ namespace UwUTerm.Ui
         private static Graphic Graphic(Component target) =>
             target == null ? null : target.GetComponent<Graphic>();
 
-        internal void MarkDirty() => _dirty = true;
+        /// <summary>How far back from the newest line the view is sitting, in display rows.
+        /// Something that moves the view temporarily - a search - puts this back afterwards.</summary>
+        internal int ScrollBack
+        {
+            get => _scrollBack;
+            set
+            {
+                int limit = Mathf.Max(0, _grid.TotalRows - _grid.Rows);
+                _scrollBack = Mathf.Clamp(value, 0, limit);
+                _dirty = true;
+            }
+        }
+
+        /// <summary>
+        /// A line somewhere in the scrollback changed.
+        ///
+        /// Change is otherwise noticed by polling the count, the last line and the caret,
+        /// which covers everything the terminal itself does - output arriving and typing. It
+        /// does not cover something rewriting a line further up, which is exactly what search
+        /// highlighting does, so that has to say so.
+        /// </summary>
+        internal void NoteLineChanged(int index)
+        {
+            _grid.Invalidate(index);
+            _dirty = true;
+        }
+
+        /// <summary>
+        /// Scroll until a line is on screen, roughly centred.
+        ///
+        /// Lines are not rows - one long line is several - so where a line sits has to be
+        /// asked of the grid, which is what did the wrapping.
+        /// </summary>
+        internal void ScrollToLine(int index)
+        {
+            int limit = Mathf.Max(0, _grid.TotalRows - _grid.Rows);
+            if (limit == 0) { ScrollToEnd(); return; }
+
+            int start = _grid.RowsBefore(index);
+            int back = _grid.TotalRows - start - _grid.Rows / 2;
+
+            _scrollBack = Mathf.Clamp(back, 0, limit);
+            _dirty = true;
+        }
 
         /// <summary>Scroll by whole display rows, clamped so there is always something on
         /// screen and so the newest line cannot be scrolled past.</summary>
@@ -315,11 +326,6 @@ namespace UwUTerm.Ui
         {
             int limit = Mathf.Max(0, _grid.TotalRows - _grid.Rows);
             int next = Mathf.Clamp(_scrollBack + rows, 0, limit);
-
-            if (UwUTermPlugin.ScreenDebug.Value)
-                UwUTermPlugin.Log.LogInfo(
-                    $"screen: scroll {rows:+#;-#;0} back={_scrollBack}->{next} limit={limit} " +
-                    $"total={_grid.TotalRows} rows={_grid.Rows} lines={_lines.Count}");
 
             if (next == _scrollBack) return;
 
@@ -360,7 +366,7 @@ namespace UwUTerm.Ui
             _dirty = true;
         }
 
-        internal void ScrollToEnd()
+        private void ScrollToEnd()
         {
             if (_scrollBack == 0) return;
             _scrollBack = 0;
@@ -388,10 +394,8 @@ namespace UwUTerm.Ui
         private Scrollbar _bar;
         private ScrollbarFixer8 _fixer;
         private bool _drivingBar;
+        private string _fontKey;
         private bool _warnedAboutFont;
-        private const int MaxDumps = 4;
-        private int _dumps;
-        private string _lastDump;
 
         internal void Tick()
         {
@@ -538,18 +542,7 @@ namespace UwUTerm.Ui
             _grid.Compose(_lines, _scrollBack, caretLine, caretColumn);
 
             _label.lineSpacing = 0f;
-            string markup = ScreenRenderer.Render(_grid, 0u, caretVisible: false);
-            _label.text = markup;
-
-            if (UwUTermPlugin.ScreenDebug.Value && _dumps < MaxDumps && markup != _lastDump)
-            {
-                _dumps++;
-                _lastDump = markup;
-                UwUTermPlugin.Log.LogInfo(
-                    $"screen: compose lines={_lines.Count} total={_grid.TotalRows} grid={_grid.Columns}x{_grid.Rows} " +
-                    $"caret={_grid.CaretRow},{_grid.CaretColumn}");
-                UwUTermPlugin.Log.LogInfo("screen: text |" + markup.Replace("\n", "\\n") + "|");
-            }
+            _label.text = ScreenRenderer.Render(_grid);
         }
 
         /// <summary>

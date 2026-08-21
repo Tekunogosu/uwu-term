@@ -20,22 +20,22 @@ namespace UwUTerm.Screen
     {
         private static readonly StringBuilder Builder = new StringBuilder(8192);
 
-        internal static string Render(ScreenGrid grid, uint caretColour, bool caretVisible)
+        internal static string Render(ScreenGrid grid)
         {
             Builder.Length = 0;
 
             for (int row = 0; row < grid.Rows; row++)
             {
                 if (row > 0) Builder.Append('\n');
-                RenderRow(grid, row, caretColour, caretVisible);
+                RenderRow(grid, row);
             }
 
             return Builder.ToString();
         }
 
-        private static void RenderRow(ScreenGrid grid, int row, uint caretColour, bool caretVisible)
+        private static void RenderRow(ScreenGrid grid, int row)
         {
-            int last = LastInteresting(grid, row, caretVisible);
+            int last = LastInteresting(grid, row);
             if (last < 0) return;
 
             int column = 0;
@@ -45,8 +45,6 @@ namespace UwUTerm.Screen
                 if (cell.Width == 0) { column++; continue; }   // the far half of a wide glyph
 
                 Style style = StyleOf(cell);
-                if (caretVisible && row == grid.CaretRow && column == grid.CaretColumn)
-                    style.Background = caretColour;
 
                 int run = column;
                 Open(style);
@@ -56,20 +54,15 @@ namespace UwUTerm.Screen
                     if (current.Rune != 0) Append(current.Rune);
                     run++;
                 }
-                while (run <= last && Continues(grid, row, run, style, caretVisible, caretColour));
+                while (run <= last && Continues(grid, row, run, style));
 
                 Close(style);
                 column = run;
             }
         }
 
-        /// <summary>A run ends where the style changes, or at the caret, which carries a
-        /// background of its own.</summary>
-        private static bool Continues(ScreenGrid grid, int row, int column, Style style,
-                                      bool caretVisible, uint caretColour)
+        private static bool Continues(ScreenGrid grid, int row, int column, Style style)
         {
-            if (caretVisible && row == grid.CaretRow && column == grid.CaretColumn) return false;
-
             Cell cell = grid[row, column];
             if (cell.Width == 0) return true;   // spill column inherits by construction
 
@@ -80,7 +73,7 @@ namespace UwUTerm.Screen
 
         /// <summary>The last column worth emitting. Trailing blanks with nothing on them are
         /// dropped, which is most of most rows.</summary>
-        private static int LastInteresting(ScreenGrid grid, int row, bool caretVisible)
+        private static int LastInteresting(ScreenGrid grid, int row)
         {
             int last = -1;
             for (int column = 0; column < grid.Columns; column++)
@@ -89,10 +82,6 @@ namespace UwUTerm.Screen
                 bool blank = cell.Rune == ' ' && cell.Background == Cell.Inherit && cell.Flags == CellFlags.None;
                 if (!blank && cell.Width != 0) last = column;
             }
-
-            if (caretVisible && row == grid.CaretRow && grid.CaretColumn > last)
-                last = grid.CaretColumn;
-
             return last;
         }
 

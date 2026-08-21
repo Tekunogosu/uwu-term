@@ -61,11 +61,5 @@ namespace UwUTerm.Patches
             _index = (_index + 1) % Ring.Count;
             return Ring[_index];
         }
-
-        internal static void Clear()
-        {
-            Ring.Clear();
-            _index = 0;
-        }
     }
 }

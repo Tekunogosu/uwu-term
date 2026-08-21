@@ -53,6 +53,15 @@ namespace UwUTerm.Patches
         internal static string LastRenderedFor(TerminalListAdapter adapter) =>
             LastRendered.TryGetValue(adapter, out string rendered) ? rendered : null;
 
+        // The prompt exactly as the server sent it. Completion is built by splitting the
+        // whole input line - prompt included - on spaces, so it has to be given a prompt that
+        // splits the way the server's own does.
+        private static readonly Dictionary<TerminalListAdapter, string> LastRaw =
+            new Dictionary<TerminalListAdapter, string>();
+
+        internal static string LastRawFor(TerminalListAdapter adapter) =>
+            LastRaw.TryGetValue(adapter, out string raw) ? raw : null;
+
         private static void Prefix(TerminalListAdapter __instance, ref string rawText, bool isPrompt, bool isMsgInput)
         {
             if (!UwUTermPlugin.ColorizePrompt.Value) return;
@@ -73,6 +82,7 @@ namespace UwUTerm.Patches
             // whole prompt, so trailing space is {sp}'s job. Appending both gave two.
             string rendered = Render(template, m, terminal, remote);
             LastRendered[__instance] = rendered;
+            LastRaw[__instance] = rawText;
             rawText = rendered;
         }
 

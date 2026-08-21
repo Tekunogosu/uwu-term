@@ -39,7 +39,8 @@ namespace UwUTerm.Patches
             internal readonly List<Hit> Hits = new List<Hit>();
             internal int Current = -1;
             internal readonly Dictionary<int, string> Original = new Dictionary<int, string>();
-            internal double Scroll;
+            internal int Scroll;
+            internal double Position;
         }
 
         private static readonly Dictionary<Terminal, Session> Sessions = new Dictionary<Terminal, Session>();
@@ -56,7 +57,11 @@ namespace UwUTerm.Patches
                 return;
             }
 
-            var session = new Session { Scroll = adapter.GetNormalizedPosition() };
+            var session = new Session
+            {
+                Scroll = ScreenTakeover.ViewFor(adapter)?.ScrollBack ?? 0,
+                Position = adapter.GetNormalizedPosition(),
+            };
             session.Panel = Build(terminal, adapter);
             Sessions[terminal] = session;
             Refresh(terminal, adapter, session);
@@ -140,7 +145,12 @@ namespace UwUTerm.Patches
             Sessions.Remove(terminal);
 
             Restore(adapter, session);
-            if (restoreScroll) adapter.SetNormalizedPosition(session.Scroll);
+            if (restoreScroll)
+            {
+                ScreenView screen = ScreenTakeover.ViewFor(adapter);
+                if (screen != null) screen.ScrollBack = session.Scroll;
+                else adapter.SetNormalizedPosition(session.Position);
+            }
             session.Panel?.Destroy();
         }
 
@@ -180,7 +190,7 @@ namespace UwUTerm.Patches
 
             Paint(adapter, session);
             ShowStatus(session);
-            if (session.Current >= 0) adapter.ScrollTo(session.Hits[session.Current].Line, 0.5f, 0.5f);
+            if (session.Current >= 0) Reveal(adapter, session.Hits[session.Current].Line);
         }
 
         private static void Step(Terminal terminal, TerminalListAdapter adapter, Session session, bool backwards)
@@ -193,7 +203,13 @@ namespace UwUTerm.Patches
 
             Paint(adapter, session);
             ShowStatus(session);
-            adapter.ScrollTo(session.Hits[session.Current].Line, 0.5f, 0.5f);
+            Reveal(adapter, session.Hits[session.Current].Line);
+        }
+
+        private static void Reveal(TerminalListAdapter adapter, int line)
+        {
+            if (ScreenTakeover.Owns(adapter)) ScreenTakeover.ScrollToLine(adapter, line);
+            else adapter.ScrollTo(line, 0.5f, 0.5f);
         }
 
         private static void ShowStatus(Session session)
@@ -227,9 +243,7 @@ namespace UwUTerm.Patches
                 string raw = adapter.Data[line].line;
                 session.Original[line] = raw;
                 adapter.Data[line].line = Splice(raw, session, start, index);
-
-                TerminalListItemViewsHolder view = adapter.GetItemViewsHolderIfVisible(line);
-                if (view != null) adapter.UpdateItemViewText(view);
+                Repaint(adapter, line);
             }
         }
 
@@ -273,11 +287,19 @@ namespace UwUTerm.Patches
             {
                 if (entry.Key >= adapter.Data.Count) continue;
                 adapter.Data[entry.Key].line = entry.Value;
-
-                TerminalListItemViewsHolder view = adapter.GetItemViewsHolderIfVisible(entry.Key);
-                if (view != null) adapter.UpdateItemViewText(view);
+                Repaint(adapter, entry.Key);
             }
             session.Original.Clear();
+        }
+
+        /// <summary>A line was rewritten. The grid has to be told; the game's own rows have
+        /// to be rebuilt. Which of those applies depends on which is drawing.</summary>
+        private static void Repaint(TerminalListAdapter adapter, int line)
+        {
+            if (ScreenTakeover.Owns(adapter)) { ScreenTakeover.NoteLineChanged(adapter, line); return; }
+
+            TerminalListItemViewsHolder view = adapter.GetItemViewsHolderIfVisible(line);
+            if (view != null) adapter.UpdateItemViewText(view);
         }
 
         /// <summary>The text as rendered, with a map back to raw indices so a match found in

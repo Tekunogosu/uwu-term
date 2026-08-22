@@ -5,7 +5,7 @@
     <LangVersion>latest</LangVersion>
     <AssemblyName>UwUTerm</AssemblyName>
     <RootNamespace>UwUTerm</RootNamespace>
-    <Version>0.1.0</Version>
+    <Version>0.1.1</Version>
     <!-- BepInEx plugins are loaded by reflection; nothing here is publicly consumed. -->
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
     <DebugType>portable</DebugType>

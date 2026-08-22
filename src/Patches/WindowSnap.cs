@@ -95,8 +95,8 @@ namespace UwUTerm.Patches
         {
             Hotkeys();
 
-            if (!UwUTermPlugin.FeatureWindows.Value && !UwUTermPlugin.EnableModifierDrag.Value) return;
-
+            // Not gated on either feature: the release is what clears _moving, and a drag
+            // left marked as still running would keep Focus() skipped for good.
             if (Input.GetMouseButtonUp(0))
             {
                 _ghost?.Hide();
@@ -131,9 +131,13 @@ namespace UwUTerm.Patches
 
         // ---- moving ----------------------------------------------------------------
 
+        /// <summary>
+        /// Which window the pointer is dragging is a fact about input, not a feature: the
+        /// focus skip needs it whether or not snapping is switched on, so it is recorded
+        /// unconditionally and only the snapping work below reads the setting.
+        /// </summary>
         private static void OnMove(uDialog __instance)
         {
-            if (!UwUTermPlugin.FeatureWindows.Value) return;
             if (ReferenceEquals(_moving, __instance)) return;
 
             _moving = __instance;
@@ -143,7 +147,7 @@ namespace UwUTerm.Patches
                 Debug("move: dragging " + __instance.name);
             }
 
-            Unsnap(__instance);
+            if (UwUTermPlugin.FeatureWindows.Value) Unsnap(__instance);
         }
 
         private static bool ModifierHeld()

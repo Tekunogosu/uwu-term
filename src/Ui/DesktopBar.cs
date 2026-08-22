@@ -27,8 +27,8 @@ namespace UwUTerm.Ui
         private const string IconGrid = "Icons";
         private const string UserName = "UserNameDesktop";
 
-        /// <summary>Between the user icon and the name it belongs to.</summary>
-        private const float IconGap = 6f;
+        /// <summary>Between the start menu button and the user name beside it.</summary>
+        private const float MenuGap = 20f;
 
         /// <summary>Room either side of the taskbar so its buttons never touch what is beside
         /// them. The gap before the window list is twice this, since that is the one that
@@ -52,9 +52,7 @@ namespace UwUTerm.Ui
         private Transform _userParent;
         private int _userOrder;
         private Vector2 _userAnchorMin, _userAnchorMax, _userPivot, _userPosition;
-        private Transform _iconParent;
-        private int _iconOrder;
-        private Vector2 _iconAnchorMin, _iconAnchorMax, _iconPivot, _iconPosition, _iconSize;
+        private bool _iconShown;
         private Transform _clockParent;
         private int _clockOrder;
         private Vector2 _clockAnchorMin, _clockAnchorMax, _clockPivot, _clockPosition, _clockSize;
@@ -121,7 +119,8 @@ namespace UwUTerm.Ui
 
         /// <summary>
         /// Put the user name against the start menu, where a desktop usually keeps who you
-        /// are, and let the window list start after it.
+        /// are, and let the window list start after it. The avatar that went with it is
+        /// hidden - the name alone is what says who you are.
         ///
         /// Its width follows the name, so nothing here assumes a size - the taskbar's inset is
         /// measured from wherever its right edge ends up, every frame.
@@ -131,28 +130,16 @@ namespace UwUTerm.Ui
             if (_user == null) return;
 
             // The icon is not a child of the label - UserNameBar holds a reference to one
-            // living over with the notification icons - so moving the name alone leaves it
-            // behind on the far side of the bar.
+            // living over with the notification icons - so hiding it is what keeps it from
+            // being left behind on the far side of the bar. Deactivating rather than
+            // clearing the image takes it out of that group's layout, so the widgets beside
+            // it close the gap.
             var widget = _user.GetComponent<UserNameBar>();
             _userIcon = widget != null && widget.iconImg != null ? widget.iconImg.rectTransform : null;
+            if (_userIcon != null) _userIcon.gameObject.SetActive(false);
 
             RectTransform menu = Find(_top, MenuButton);
-            float x = menu != null ? RightEdgeIn(menu, _top) - _top.rect.xMin + Gutter : Gutter;
-
-            if (_userIcon != null)
-            {
-                // Taken before the reparent: a layout group sized it, and leaving one drops
-                // whatever width it was given.
-                Vector2 size = _userIcon.rect.size;
-
-                _userIcon.SetParent(_top, false);
-                _userIcon.anchorMin = _userIcon.anchorMax = new Vector2(0f, 0.5f);
-                _userIcon.pivot = new Vector2(0f, 0.5f);
-                _userIcon.sizeDelta = size;
-                _userIcon.anchoredPosition = new Vector2(x, 0f);
-
-                x += size.x + IconGap;
-            }
+            float x = menu != null ? RightEdgeIn(menu, _top) - _top.rect.xMin + MenuGap : MenuGap;
 
             _user.SetParent(_top, false);
             _user.anchorMin = _user.anchorMax = new Vector2(0f, 0.5f);
@@ -299,16 +286,7 @@ namespace UwUTerm.Ui
 
         private void Remember()
         {
-            if (_userIcon != null)
-            {
-                _iconParent = _userIcon.parent;
-                _iconOrder = _userIcon.GetSiblingIndex();
-                _iconAnchorMin = _userIcon.anchorMin;
-                _iconAnchorMax = _userIcon.anchorMax;
-                _iconPivot = _userIcon.pivot;
-                _iconPosition = _userIcon.anchoredPosition;
-                _iconSize = _userIcon.sizeDelta;
-            }
+            if (_userIcon != null) _iconShown = _userIcon.gameObject.activeSelf;
 
             if (_user != null)
             {
@@ -364,16 +342,7 @@ namespace UwUTerm.Ui
 
         private void Undo()
         {
-            if (_userIcon != null && _iconParent != null)
-            {
-                _userIcon.SetParent(_iconParent, false);
-                _userIcon.SetSiblingIndex(_iconOrder);
-                _userIcon.anchorMin = _iconAnchorMin;
-                _userIcon.anchorMax = _iconAnchorMax;
-                _userIcon.pivot = _iconPivot;
-                _userIcon.anchoredPosition = _iconPosition;
-                _userIcon.sizeDelta = _iconSize;
-            }
+            if (_userIcon != null) _userIcon.gameObject.SetActive(_iconShown);
 
             if (_user != null && _userParent != null)
             {

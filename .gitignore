@@ -16,3 +16,4 @@ Local.props
 *.user
 *.suo
 *.DotSettings.user
+dist/

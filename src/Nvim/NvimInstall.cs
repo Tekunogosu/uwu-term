@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Net;
@@ -42,6 +43,26 @@ namespace UwUTerm.Nvim
         internal static bool Available => File.Exists(Location);
 
         /// <summary>
+        /// An editor already running to join, or null to start one per window.
+        ///
+        /// A path is a unix socket, host:port is tcp. What is on the other end is a neovim
+        /// started with --listen, which for anyone whose game runs in a container is the way
+        /// to get an editor that has the machine's own git, compilers and language servers -
+        /// the container has none of them, and no way to install any.
+        /// </summary>
+        internal static string Address
+        {
+            get
+            {
+                string configured = UwUTermPlugin.NvimAddress.Value.Trim();
+                return configured.Length > 0 ? configured : null;
+            }
+        }
+
+        /// <summary>Whether there is an editor to be had at all - one to join, or one to run.</summary>
+        internal static bool Usable => Address != null || Available;
+
+        /// <summary>
         /// The directory the editor starts in, made if it is not there.
         ///
         /// This is a folder on the machine, and it is not where the game keeps anything. A
@@ -73,7 +94,68 @@ namespace UwUTerm.Nvim
             }
         }
 
-        private static bool IsWindows =>
+        /// <summary>
+        /// Where the editor keeps its config, its plugins and its state.
+        ///
+        /// Inherited from the game, XDG_CONFIG_HOME and XDG_DATA_HOME point somewhere nobody
+        /// chose. Steam under flatpak hands out ~/.var/app/com.valvesoftware.Steam/config, the
+        /// machine's own ~/.config is not mounted, and there is no git or compiler in there to
+        /// install anything with. Naming the directories here instead gives the same answer on
+        /// every platform and launcher, keeps a config that ships with the mod next to the mod,
+        /// and leaves whatever neovim the player has for their own work untouched.
+        ///
+        /// Null means hand the inherited directories back, which is what "system" asks for.
+        /// </summary>
+        internal static string ConfigRoot
+        {
+            get
+            {
+                string configured = UwUTermPlugin.NvimConfig.Value.Trim();
+                if (string.Equals(configured, "system", StringComparison.OrdinalIgnoreCase)) return null;
+                if (configured.Length > 0) return configured;
+
+                return Path.Combine(BepInEx.Paths.BepInExRootPath, "nvim-config");
+            }
+        }
+
+        /// <summary>The XDG variables the editor is started with, and the directories they
+        /// name, made if they are not there. Empty when the inherited ones are being kept.</summary>
+        internal static IDictionary<string, string> ChildEnvironment
+        {
+            get
+            {
+                var variables = new Dictionary<string, string>();
+                string root = ConfigRoot;
+                if (root == null) return variables;
+
+                foreach (var pair in new[]
+                {
+                    new[] { "XDG_CONFIG_HOME", "config" },
+                    new[] { "XDG_DATA_HOME", "data" },
+                    new[] { "XDG_STATE_HOME", "state" },
+                    new[] { "XDG_CACHE_HOME", "cache" },
+                })
+                {
+                    string path = Path.Combine(root, pair[1]);
+
+                    try
+                    {
+                        if (!Directory.Exists(path)) Directory.CreateDirectory(path);
+                    }
+                    catch (Exception e)
+                    {
+                        UwUTermPlugin.Log.LogWarning($"nvim: could not make {path} - {e.Message}");
+                        continue;
+                    }
+
+                    variables[pair[0]] = path;
+                }
+
+                return variables;
+            }
+        }
+
+        internal static bool IsWindows =>
             Environment.OSVersion.Platform != PlatformID.Unix &&
             Environment.OSVersion.Platform != PlatformID.MacOSX;
 

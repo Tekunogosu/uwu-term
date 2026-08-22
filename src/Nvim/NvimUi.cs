@@ -68,11 +68,22 @@ namespace UwUTerm.Nvim
                 case "grid_cursor_goto": CursorGoto(arguments); return;
                 case "default_colors_set": DefaultColours(arguments); return;
                 case "hl_attr_define": DefineHighlight(arguments); return;
+                case "mouse_on": MouseWanted = true; return;
+                case "mouse_off": MouseWanted = false; return;
                 case "flush": Flushed?.Invoke(); return;
             }
         }
 
         // ---- the screen ------------------------------------------------------------------
+
+        /// <summary>
+        /// Whether neovim wants the mouse.
+        ///
+        /// It says so on attach and again whenever 'mouse' changes, and until it does the UI
+        /// has no business taking clicks - nvim_input_mouse moves the cursor whatever 'mouse'
+        /// says, so forwarding regardless would quietly overrule anyone who turned it off.
+        /// </summary>
+        internal bool MouseWanted { get; private set; }
 
         private void GridResize(object[] arguments)
         {
@@ -97,6 +108,19 @@ namespace UwUTerm.Nvim
 
             Style style = _default;
 
+            // Neovim owns the layout, and every cell it sends is exactly one column. An empty
+            // one is the far half of the glyph before it, and is the only thing that says that
+            // glyph was wide.
+            //
+            // Deciding width here from the rune instead - which is what a terminal has to do,
+            // because nothing tells it - puts our table against the server's, and they do not
+            // agree: 'ambiwidth', neovim's own tables and the private-use blocks a nerd font
+            // lives in all move the line. One disagreement misaligns the rest of the row, and
+            // a row of a file tree is mostly icons.
+            int glyph = -1;
+            int glyphRune = ' ';
+            Style glyphStyle = _default;
+
             foreach (object entry in cells)
             {
                 if (!(entry is object[] cell) || cell.Length == 0) continue;
@@ -105,14 +129,28 @@ namespace UwUTerm.Nvim
                 if (cell.Length >= 2) style = Highlight(Number(cell[1]));
 
                 int repeat = cell.Length >= 3 ? (int)Number(cell[2]) : 1;
-                int rune = text.Length == 0 ? ' ' : char.ConvertToUtf32(text, 0);
-                int width = RuneWidth.Of(rune);
-                if (width == 0) width = 1;
 
                 for (int i = 0; i < repeat; i++)
                 {
-                    _grid.Put(row, column, rune, width, style);
-                    column += width;
+                    if (text.Length == 0)
+                    {
+                        // Rewriting the glyph as two columns wide is what claims this one:
+                        // the grid gives its far half no rune, and the renderer draws nothing
+                        // there rather than padding the row out by a column.
+                        if (glyph >= 0) _grid.Put(row, glyph, glyphRune, 2, glyphStyle);
+                        else _grid.Put(row, column, ' ', 1, style);
+
+                        glyph = -1;
+                        column++;
+                        continue;
+                    }
+
+                    glyph = column;
+                    glyphRune = char.ConvertToUtf32(text, 0);
+                    glyphStyle = style;
+
+                    _grid.Put(row, column, glyphRune, 1, style);
+                    column++;
                 }
             }
         }

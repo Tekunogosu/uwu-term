@@ -25,6 +25,23 @@ namespace UwUTerm.Ui
         private readonly List<RpcClient.Notification> _arrived = new List<RpcClient.Notification>();
 
         private RpcClient _client;
+
+        // Which buffer this window's script lives in. 0 is whatever is current, which is the
+        // only buffer an embedded editor has. A shared session has many.
+        private volatile int _buffer;
+
+        // Which game file each buffer came from. A session holds the player's own buffers too,
+        // and a buffer that is not in here is not one of the game's - saving it has nowhere to
+        // go, which the game already handles by asking.
+        private readonly Dictionary<int, string> _paths = new Dictionary<int, string>();
+
+        /// <summary>The notification the session sends when the buffer on screen changes.</summary>
+        private const string BufferEvent = "uwuterm_buf";
+
+        /// <summary>Raised on the main thread when a different buffer comes to the front, so
+        /// the window can follow it - the file it saves to is whichever one you are looking
+        /// at, not whichever one it opened with.</summary>
+        internal event System.Action<int> BufferEntered;
         private NvimUi _ui;
 
         private GameObject _root;
@@ -40,7 +57,11 @@ namespace UwUTerm.Ui
         private bool _dirty;
         private bool _attached;
 
-        internal bool Running => _client != null && _client.Running;
+        internal bool Running => _client is { Running: true };
+
+        /// <summary>Whether this view is a UI on a session somebody else is running, rather
+        /// than an editor of its own.</summary>
+        internal bool Attached => _client is { Attached: true };
 
         /// <summary>
         /// The buffer as the window last saw it.
@@ -59,32 +80,93 @@ namespace UwUTerm.Ui
 
         // ---- starting --------------------------------------------------------------------
 
-        internal static NvimView Create(RectTransform parent, TMP_FontAsset font, float fontSize, string file)
+        /// <summary>
+        /// An editor in this window.
+        ///
+        /// The shared session is offered to the first window only - it has one screen, and a
+        /// second UI on it would mirror the first rather than show anything of its own. Every
+        /// window after that runs an editor of its own, which has the filetype the mod
+        /// installs and not much else, but is an editor. Nothing here ever gives up and hands
+        /// the window back to the game's own rows: an editor with fewer tools in it beats no
+        /// editor at all.
+        /// </summary>
+        internal static NvimView Create(RectTransform parent, TMP_FontAsset font, float fontSize,
+                                        string file, bool joinSession = true, bool allowSpawn = true)
         {
-            if (parent == null || !NvimInstall.Available) return null;
+            if (parent == null || !NvimInstall.Usable) return null;
 
             var view = new NvimView();
             view.Build(parent, font, fontSize);
+
+            string address = joinSession ? NvimInstall.Address : null;
+
+            // Joining is worth trying and not worth insisting on. If nothing is listening the
+            // player has not started a session, which is a reason to run an editor here rather
+            // than a reason to have none.
+            if (address != null && !view.Join(address) && allowSpawn && NvimInstall.Available)
+                UwUTermPlugin.Log.LogInfo("nvim: starting an editor in the game instead");
 
             // -n skips the swap file: the buffer lives in the game's filesystem, not on this
             // machine, and a swap beside it would be a file nobody asked for.
             string arguments = "--embed -n";
             if (!string.IsNullOrEmpty(file)) arguments += " \"" + file + "\"";
 
-            view._client = new RpcClient();
-            view._client.Ended += why => view.Ended?.Invoke(why);
+            if (view._client == null && allowSpawn && NvimInstall.Available)
+            {
+                view._client = view.Talk();
 
-            if (!view._client.Start(NvimInstall.Location, arguments, NvimInstall.Workspace))
+                if (!view._client.Start(NvimInstall.Location, arguments, NvimInstall.Workspace,
+                                        NvimInstall.ChildEnvironment))
+                    view._client = null;
+            }
+
+            if (view._client == null)
             {
                 view.Destroy();
                 return null;
             }
+
+            if (view._client.Attached) view.WatchBuffers();
 
             view._ui = new NvimUi(view._grid);
             view._ui.Flushed += () => view._dirty = true;
             view._ui.Resized += (columns, rows) => view._grid.Resize(columns, rows);
 
             return view;
+        }
+
+        /// <summary>A client wired to report its ending through this view.</summary>
+        private RpcClient Talk()
+        {
+            var client = new RpcClient();
+            client.Ended += why => Ended?.Invoke(why);
+            return client;
+        }
+
+        /// <summary>
+        /// Try the session, and say whether it answered.
+        ///
+        /// Why it did not is worth printing rather than swallowing: a socket that is not there
+        /// and a socket nothing is listening on read the same from in here, and the difference
+        /// is whether the daemon was started or has died.
+        /// </summary>
+        private bool Join(string address)
+        {
+            string reason = null;
+
+            var client = new RpcClient();
+            client.Ended += why => reason = why;
+
+            if (client.Connect(address))
+            {
+                client.Ended += why => Ended?.Invoke(why);
+                _client = client;
+                return true;
+            }
+
+            UwUTermPlugin.Log.LogWarning("nvim: " + (reason ?? "could not reach " + address));
+            client.Dispose();
+            return false;
         }
 
         private void Build(RectTransform parent, TMP_FontAsset font, float fontSize)
@@ -139,7 +221,7 @@ namespace UwUTerm.Ui
 
         // ---- running ---------------------------------------------------------------------
 
-        internal void Tick()
+        internal void Tick(bool focused)
         {
             if (_root == null || _client == null) return;
 
@@ -147,9 +229,18 @@ namespace UwUTerm.Ui
             // they touch ends up in the scene.
             _arrived.Clear();
             if (_client.Drain(_arrived) > 0)
-                foreach (RpcClient.Notification notification in _arrived) _ui.Handle(notification);
+            {
+                foreach (RpcClient.Notification notification in _arrived)
+                {
+                    if (notification.Method == BufferEvent) Entered(notification);
+                    else _ui.Handle(notification);
+                }
+            }
 
             if (Resized() || !_attached) Attach();
+
+            Mouse(focused);
+
             if (!_dirty) return;
 
             _dirty = false;
@@ -193,6 +284,113 @@ namespace UwUTerm.Ui
             return true;
         }
 
+        // ---- the mouse -------------------------------------------------------------------
+
+        /// <summary>Which button is down, as Unity numbers them, or -1 for none.</summary>
+        private int _held = -1;
+        private int _heldRow = -1, _heldColumn = -1;
+
+        /// <summary>
+        /// Polled, not taken as pointer events.
+        ///
+        /// Implementing IPointerDownHandler would put this object first in line for the click,
+        /// ahead of everything the game already routes through the window - focusing it among
+        /// them. Watching the mouse leaves that routing alone and takes a copy.
+        /// </summary>
+        private void Mouse(bool focused)
+        {
+            // A drag outlives the pointer leaving the view and the window losing focus. Letting
+            // go of the button is the only thing that ends it, which is what makes selecting
+            // against the very edge of the window possible at all.
+            if (_held >= 0)
+            {
+                if (Input.GetMouseButton(_held))
+                {
+                    if (Under(out int row, out int column, clamp: true) &&
+                        (row != _heldRow || column != _heldColumn))
+                    {
+                        _heldRow = row;
+                        _heldColumn = column;
+                        SendMouse(Named(_held), "drag", row, column);
+                    }
+
+                    return;
+                }
+
+                if (Under(out int endRow, out int endColumn, clamp: true))
+                    SendMouse(Named(_held), "release", endRow, endColumn);
+
+                _held = -1;
+                return;
+            }
+
+            // Neovim asks for the mouse, and until it has, clicks belong to the game.
+            if (!focused || _ui == null || !_ui.MouseWanted) return;
+
+            for (int button = 0; button <= 2; button++)
+            {
+                if (!Input.GetMouseButtonDown(button)) continue;
+                if (!Under(out int row, out int column, clamp: false)) continue;
+
+                _held = button;
+                _heldRow = row;
+                _heldColumn = column;
+                SendMouse(Named(button), "press", row, column);
+                return;
+            }
+
+            float wheel = Input.mouseScrollDelta.y;
+            if (Mathf.Abs(wheel) > 0.01f && Under(out int overRow, out int overColumn, clamp: false))
+                SendMouse("wheel", wheel > 0f ? "up" : "down", overRow, overColumn);
+        }
+
+        /// <summary>Unity numbers the buttons, neovim names them.</summary>
+        private static string Named(int button) =>
+            button == 1 ? "right" : button == 2 ? "middle" : "left";
+
+        private void SendMouse(string button, string action, int row, int column) =>
+            _client.Notify("nvim_input_mouse",
+                new object[] { button, action, Held(), 0, row, column });
+
+        /// <summary>The modifiers as neovim spells them - one letter each, no separator.</summary>
+        private static string Held()
+        {
+            string held = "";
+
+            if (Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift)) held += "S";
+            if (Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl)) held += "C";
+            if (Input.GetKey(KeyCode.LeftAlt) || Input.GetKey(KeyCode.RightAlt)) held += "A";
+
+            return held;
+        }
+
+        /// <summary>The cell under the pointer. Clamped to the nearest real one when a drag has
+        /// taken the pointer outside, refused outright when a click lands there.</summary>
+        private bool Under(out int row, out int column, bool clamp)
+        {
+            row = 0;
+            column = 0;
+
+            Canvas canvas = _rect != null ? _rect.GetComponentInParent<Canvas>() : null;
+            Camera camera = canvas != null && canvas.renderMode != RenderMode.ScreenSpaceOverlay
+                ? canvas.worldCamera
+                : null;
+
+            if (_rect == null || !RectTransformUtility.ScreenPointToLocalPointInRectangle(
+                    _rect, Input.mousePosition, camera, out Vector2 local))
+                return false;
+
+            Rect area = _rect.rect;
+            if (!clamp && !area.Contains(local)) return false;
+
+            row = Mathf.FloorToInt((area.yMax - Mathf.Clamp(local.y, area.yMin, area.yMax)) / _lineHeight);
+            column = Mathf.FloorToInt((Mathf.Clamp(local.x, area.xMin, area.xMax) - area.xMin) / _advance);
+
+            row = Mathf.Clamp(row, 0, Mathf.Max(0, _grid.Rows - 1));
+            column = Mathf.Clamp(column, 0, Mathf.Max(0, _grid.Columns - 1));
+            return true;
+        }
+
         internal void Send(string keys)
         {
             if (_client == null || string.IsNullOrEmpty(keys)) return;
@@ -210,7 +408,7 @@ namespace UwUTerm.Ui
         {
             if (_client == null) { then(null); return; }
 
-            _client.Request("nvim_buf_get_lines", new object[] { 0, 0, -1, false }, (error, result) =>
+            _client.Request("nvim_buf_get_lines", new object[] { _buffer, 0, -1, false }, (error, result) =>
             {
                 if (!(result is object[] lines)) { then(null); return; }
 
@@ -245,7 +443,7 @@ namespace UwUTerm.Ui
         internal void SetName(string name)
         {
             if (_client == null || string.IsNullOrEmpty(name)) return;
-            _client.Request("nvim_buf_set_name", new object[] { 0, name });
+            _client.Request("nvim_buf_set_name", new object[] { _buffer, name });
         }
 
         /// <summary>
@@ -260,7 +458,151 @@ namespace UwUTerm.Ui
         {
             if (_client == null || string.IsNullOrEmpty(filetype)) return;
             _client.Request("nvim_set_option_value",
-                new object[] { "filetype", filetype, new Dictionary<string, object> { { "buf", 0 } } });
+                new object[] { "filetype", filetype, new Dictionary<string, object> { { "buf", _buffer } } });
+        }
+
+        /// <summary>
+        /// Put a script in front of the editor.
+        ///
+        /// An editor started for this window has the one buffer, so the script goes in it. A
+        /// shared session is somebody's whole working set, and dropping a script on top of
+        /// whatever they had open would be rude - so each one opened gets a buffer of its own
+        /// and joins the rest. That is what makes a session worth pointing at instead of
+        /// starting an editor per window: :ls, :b and every plugin see all of them.
+        /// </summary>
+        internal void Open(string name, string source, string filetype, string path = null)
+        {
+            if (_client == null) return;
+
+            if (!_client.Attached)
+            {
+                Load(name, source, filetype);
+                return;
+            }
+
+            // The same file arriving twice is a reload, not a second script - the game sends
+            // the source again after a save - so it goes back into the buffer it already has
+            // rather than growing the session a duplicate on every write.
+            int already = BufferFor(path);
+            if (already > 0)
+            {
+                _buffer = already;
+                Load(name, source, filetype);
+                _client.Notify("nvim_set_current_buf", new object[] { already });
+                return;
+            }
+
+            // Made through lua so the answer is a plain buffer number - nvim_create_buf hands
+            // back an ext-typed handle, which is fine to pass around but useless as the key for
+            // which file a buffer came from - and so the reuse below is one round trip rather
+            // than three.
+            //
+            // A window opens on an empty unnamed buffer, and opening a file into it should take
+            // that buffer over the way :e does. Leaving it behind litters the session with a
+            // scratch that has no name to switch back to and no file to save to.
+            // The session's own empty buffer counts too: a headless neovim starts with one, so
+            // taking only ours would leave the player looking at a session with two scratches
+            // in it before they had opened anything.
+            //
+            // swapfile off because these are not files here. The script lives on the server and
+            // reaches the buffer as text, and a session running the player's own config would
+            // otherwise stop on E325 the moment two windows named the same buffer.
+            const string lua =
+                "local ours = ...\n" +
+                "local function reusable(b)\n" +
+                "  return b > 0 and vim.api.nvim_buf_is_valid(b)\n" +
+                "    and vim.api.nvim_buf_get_name(b) == ''\n" +
+                "    and not vim.bo[b].modified\n" +
+                "    and vim.api.nvim_buf_line_count(b) == 1\n" +
+                "    and vim.api.nvim_buf_get_lines(b, 0, 1, false)[1] == ''\n" +
+                "end\n" +
+                "local target\n" +
+                "local current = vim.api.nvim_get_current_buf()\n" +
+                "if reusable(ours) then target = ours\n" +
+                "elseif reusable(current) then target = current\n" +
+                "else target = vim.api.nvim_create_buf(true, false) end\n" +
+                "vim.bo[target].swapfile = false\n" +
+                "return target";
+
+            _client.Request("nvim_exec_lua",
+                new object[] { lua, new object[] { _buffer } },
+                (error, result) =>
+                {
+                    int buffer = 0;
+                    try { if (error == null && result != null) buffer = System.Convert.ToInt32(result); }
+                    catch (System.Exception) { }
+
+                    if (buffer <= 0) { Load(name, source, filetype); return; }
+
+                    _buffer = buffer;
+                    if (path != null) lock (_paths) _paths[buffer] = path;
+
+                    Load(name, source, filetype);
+                    _client.Notify("nvim_set_current_buf", new object[] { buffer });
+                });
+        }
+
+        /// <summary>
+        /// Ask the session to say when the buffer on screen changes.
+        ///
+        /// One autocmd rather than asking every frame - the window has to follow whatever the
+        /// player switches to with :b, and a session they are also using themselves will
+        /// switch for reasons this never hears about otherwise.
+        /// </summary>
+        private void WatchBuffers()
+        {
+            _client.Request("nvim_get_api_info", new object[0], (error, result) =>
+            {
+                if (error != null || !(result is object[] info) || info.Length < 1) return;
+
+                const string lua =
+                    "local channel = ...\n" +
+                    "vim.api.nvim_create_autocmd('BufEnter', {\n" +
+                    "  group = vim.api.nvim_create_augroup('uwuterm', { clear = true }),\n" +
+                    "  callback = function(event) vim.rpcnotify(channel, '" + BufferEvent + "', event.buf) end,\n" +
+                    "})";
+
+                _client.Notify("nvim_exec_lua", new object[] { lua, new object[] { info[0] } });
+            });
+        }
+
+        private void Entered(RpcClient.Notification notification)
+        {
+            if (notification.Arguments.Length < 1) return;
+
+            int buffer;
+            try { buffer = System.Convert.ToInt32(notification.Arguments[0]); }
+            catch (System.Exception) { return; }
+
+            _buffer = buffer;
+            BufferEntered?.Invoke(buffer);
+        }
+
+        /// <summary>The game file a buffer came from, or null for one that is not the game's.</summary>
+        internal string PathFor(int buffer)
+        {
+            lock (_paths) return _paths.TryGetValue(buffer, out string path) ? path : null;
+        }
+
+        /// <summary>The buffer already holding a file, or 0 for one not open yet.</summary>
+        private int BufferFor(string path)
+        {
+            if (string.IsNullOrEmpty(path)) return 0;
+
+            lock (_paths)
+            {
+                foreach (KeyValuePair<int, string> known in _paths)
+                    if (known.Value == path) return known.Key;
+            }
+
+            return 0;
+        }
+
+        private void Load(string name, string source, string filetype)
+        {
+            SetName(name);
+            SetSource(source);
+            SetFiletype(filetype);
         }
 
         internal void SetSource(string source)
@@ -271,7 +613,14 @@ namespace UwUTerm.Ui
             var lines = new object[split.Length];
             for (int i = 0; i < split.Length; i++) lines[i] = split[i];
 
-            _client.Request("nvim_buf_set_lines", new object[] { 0, 0, -1, false, lines });
+            _client.Request("nvim_buf_set_lines", new object[] { _buffer, 0, -1, false, lines });
+
+            // Writing the lines is what marks the buffer modified, and nobody has modified it -
+            // this is the file as the server has it. Left set, :q argues about unsaved changes
+            // on a script nothing has touched, the window's modified marker means nothing, and
+            // an untouched buffer stops looking empty enough to open the next file into.
+            _client.Request("nvim_set_option_value",
+                new object[] { "modified", false, new Dictionary<string, object> { { "buf", _buffer } } });
         }
 
         // ---- drawing ---------------------------------------------------------------------
@@ -374,6 +723,12 @@ namespace UwUTerm.Ui
 
         internal void Destroy()
         {
+            // Give the screen back. A session we joined carries on without us, with the buffer
+            // still in it - it is the player's editor, and closing a game window is not a
+            // reason to throw away what they were editing.
+            if (_client != null && _client.Attached)
+                _client.Notify("nvim_ui_detach", new object[0]);
+
             _client?.Dispose();
             _client = null;
 

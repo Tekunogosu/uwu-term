@@ -22,6 +22,8 @@ namespace UwUTerm
         internal static ConfigEntry<bool> FeatureDesktop;
         internal static ConfigEntry<bool> FeatureMail;
         internal static ConfigEntry<bool> FeatureWindows;
+        internal static ConfigEntry<bool> FeatureCommandTidy;
+        internal static ConfigEntry<bool> TidyLs;
 
         internal static ConfigEntry<int> KillRingSize;
         internal static ConfigEntry<int> PanelBackgroundAlpha;
@@ -54,6 +56,8 @@ namespace UwUTerm
         internal static ConfigEntry<string> PromptSymRemote;
         internal static ConfigEntry<string> NvimPath;
         internal static ConfigEntry<string> NvimWorkspace;
+        internal static ConfigEntry<string> NvimAddress;
+        internal static ConfigEntry<string> NvimConfig;
         internal static ConfigEntry<string> NvimFiletype;
         internal static ConfigEntry<bool> NvimDownload;
         internal static ConfigEntry<float> BarSpacing;
@@ -86,6 +90,15 @@ namespace UwUTerm
         internal static ConfigEntry<KeyboardShortcut> HistorySearchBackward;
         internal static ConfigEntry<KeyboardShortcut> HistorySearchForward;
 
+
+        /// <summary>
+        /// Whether one command's tweaks run: the feature as a whole, and that command's own
+        /// switch under [CommandTidy]. Every per-command patch asks through here, so the
+        /// master switch keeps covering commands added after it.
+        /// </summary>
+        internal static bool CommandTidyEnabled(ConfigEntry<bool> command) =>
+            FeatureCommandTidy.Value && command.Value;
+
         private Harmony _harmony;
         private float _nextConfigCheck;
         private System.DateTime _configStamp;
@@ -96,7 +109,7 @@ namespace UwUTerm
 
             FeatureTerminal = Config.Bind("Features", "Terminal", true,
                 "Replace the terminal. Grid screen, readline editing, recalling and searching\n" +
-                "history, scrollback search, tab completion, the custom prompt and ls tidying.\n" +
+                "history, scrollback search, tab completion and the custom prompt.\n" +
                 "\n" +
                 "All of it or none of it - off gives you the game's own terminal. Whether\n" +
                 "history is kept between sessions is PersistHistory below.");
@@ -122,6 +135,11 @@ namespace UwUTerm
 
             FeatureWindows = Config.Bind("Features", "WindowSnapping", true,
                 "Drag a window to a screen edge to snap it, and snap from the keyboard.");
+
+            FeatureCommandTidy = Config.Bind("Features", "CommandTidy", true,
+                "Tidy the output of individual shell commands, and accept flag spellings the\n" +
+                "server rejects. Off turns every one of them off; the [CommandTidy] section\n" +
+                "switches them one at a time.");
 
             // ---- terminal ----------------------------------------------------------------
 
@@ -208,6 +226,12 @@ namespace UwUTerm
             SearchActiveHighlightColor = Config.Bind("Terminal", "SearchActiveHighlight", "",
                 "Optional background behind the current match. RGBA hex, blank for none.");
 
+            // ---- command tidy ------------------------------------------------------------
+
+            TidyLs = Config.Bind("CommandTidy", "ls", true,
+                "Reflow bare `ls` output into columns, and fold `ls -al`, `ls -a -l` and\n" +
+                "`ls -l -a` into the `-la` the server accepts.");
+
             // ---- history -----------------------------------------------------------------
 
             HistoryLimit = Config.Bind("History", "HistoryLimit", 500,
@@ -273,6 +297,49 @@ namespace UwUTerm
                 "A folder on your machine, holding none of the game's files - a script lives on\n" +
                 "the server and reaches the editor as text. :w writes here; the window's save\n" +
                 "button compiles into the game.");
+
+            NvimAddress = Config.Bind("Editor", "NvimAddress", "",
+                "Join a neovim that is already running instead of starting one per window.\n" +
+                "Blank starts one, which is the default and needs nothing set up.\n" +
+                "\n" +
+                "A path is a unix socket, or a named pipe on Windows. host:port is tcp:\n" +
+                "  BepInEx/nvim-config/nvim.sock      (Linux, macOS)\n" +
+                "  \\\\.\\pipe\\uwuterm                   (Windows)\n" +
+                "  127.0.0.1:6789                     (either)\n" +
+                "\n" +
+                "Start the other end with ./nvim-daemon.sh from the mod's source, or by hand:\n" +
+                "  nvim --headless --listen <the same address>\n" +
+                "\n" +
+                "Why bother: under flatpak Steam or the Steam Linux Runtime the game runs in a\n" +
+                "container with no git and no compiler, so an editor started there can load\n" +
+                "plugins but never install one. A session outside it has your config, your\n" +
+                "plugin manager, your compilers and your language servers, and scripts you open\n" +
+                "become buffers in it alongside whatever else you had loaded.\n" +
+                "\n" +
+                "On a native Windows or Linux install the game is already on your machine and\n" +
+                "none of that applies - NvimConfig = system is the shorter road.\n" +
+                "\n" +
+                "One editor window at a time while this is set - the session has one screen,\n" +
+                "and a second window would mirror the first rather than show anything new.\n" +
+                "Open more scripts into the same window; each becomes its own buffer.\n" +
+                "\n" +
+                "A tcp port is reachable by everything else on the machine, and neovim's rpc\n" +
+                "runs whatever lua it is handed. Prefer the socket.");
+
+            NvimConfig = Config.Bind("Editor", "NvimConfig", "",
+                "Where the editor keeps its config, its plugins and its state. Blank means\n" +
+                "BepInEx/nvim-config, made on first use.\n" +
+                "\n" +
+                "The mod's own filetype files are installed under config/nvim there, and\n" +
+                "plugins go in data/nvim/site/pack/<any name>/start/<plugin>/ - neovim loads\n" +
+                "everything under a start directory by itself, so no plugin manager is needed.\n" +
+                "Nor would one work: the game runs in a container with no git and no compiler,\n" +
+                "so a plugin has to be put there from outside.\n" +
+                "\n" +
+                "Set it to system to use whatever config the inherited XDG directories point\n" +
+                "at instead. On a native install that is your own neovim config, which is\n" +
+                "usually what you want. Under flatpak Steam it is\n" +
+                "~/.var/app/com.valvesoftware.Steam/config/nvim, which is nobody's.");
 
             NvimFiletype = Config.Bind("Editor", "NvimFiletype", "greyscript",
                 "The filetype neovim is told the buffer is. Highlighting follows from this, so\n" +

@@ -28,7 +28,7 @@ namespace UwUTerm.Patches
         [HarmonyPrefix]
         private static void OnSend(Terminal __instance, ref string input)
         {
-            if (UwUTermPlugin.FeatureTerminal.Value)
+            if (UwUTermPlugin.CommandTidyEnabled(UwUTermPlugin.TidyLs))
             {
                 string normalized = NormalizeLs(input);
                 if (normalized != null && normalized != input)
@@ -97,7 +97,7 @@ namespace UwUTerm.Patches
             if (UwUTermPlugin.DebugOutput.Value && !string.IsNullOrEmpty(texto))
                 UwUTermPlugin.Log.LogInfo("recv <- " + Escape(texto));
 
-            if (!UwUTermPlugin.FeatureTerminal.Value) return;
+            if (!UwUTermPlugin.CommandTidyEnabled(UwUTermPlugin.TidyLs)) return;
             if (!ReferenceEquals(_pendingLs, __instance)) return;
             if (isMsgInput || isPassword) return;
             if (string.IsNullOrEmpty(texto)) return;

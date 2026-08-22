@@ -177,6 +177,14 @@ namespace UwUTerm.Patches
 
             asset.name = "UwUTerm " + Path.GetFileNameWithoutExtension(path);
 
+            // A grid is only a grid while every character advances the same distance, and TMP's
+            // faux bold does not: with no bold face to switch to it thickens the glyph in place
+            // and adds boldSpacing to the advance of every character it covers. That is a
+            // fraction of a cell each, invisible on one word and a shove on a whole row - a
+            // file tree down the left, whose directory names are bold, walks everything to the
+            // right of it out of its column. Zeroing it keeps the weight and drops the shove.
+            asset.boldSpacing = 0f;
+
             if (UwUTermPlugin.TerminalFontFallback.Value && fallback != null)
                 asset.fallbackFontAssetTable = new List<TMP_FontAsset> { fallback };
 

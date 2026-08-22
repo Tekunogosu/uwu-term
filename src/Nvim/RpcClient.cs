@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.IO.Pipes;
+using System.Net.Sockets;
 
 namespace UwUTerm.Nvim
 {
@@ -24,7 +26,11 @@ namespace UwUTerm.Nvim
         private const int NotificationKind = 2;
 
         private Process _child;
+        private Socket _socket;
+        private NamedPipeClientStream _pipe;
+        private bool _joined;
         private Stream _toChild;
+        private Stream _fromChild;
         private System.Threading.Thread _reader;
         private volatile bool _stopping;
 
@@ -46,7 +52,14 @@ namespace UwUTerm.Nvim
         /// exiting, or the pipe breaking.</summary>
         internal event Action<string> Ended;
 
-        internal bool Running => _child != null && !_child.HasExited;
+        internal bool Running =>
+            (_child != null && !_child.HasExited)
+            || (_socket != null && _socket.Connected)
+            || (_pipe != null && _pipe.IsConnected);
+
+        /// <summary>True when this is a conversation with an editor somebody else started, so
+        /// ending it means hanging up rather than shutting the editor down.</summary>
+        internal bool Attached => _joined;
 
         // Every client that has started a child, so none is left running if the game goes away
         // without taking its editors down first.
@@ -69,7 +82,8 @@ namespace UwUTerm.Nvim
         }
 
         /// <summary>Start neovim with no UI of its own and no shell around it.</summary>
-        internal bool Start(string program, string arguments, string workingDirectory = null)
+        internal bool Start(string program, string arguments, string workingDirectory = null,
+                            IDictionary<string, string> environment = null)
         {
             var info = new ProcessStartInfo(program, arguments)
             {
@@ -85,6 +99,12 @@ namespace UwUTerm.Nvim
             if (!string.IsNullOrEmpty(workingDirectory) && Directory.Exists(workingDirectory))
                 info.WorkingDirectory = workingDirectory;
 
+            // Which config and which plugins. Set rather than inherited because what the game
+            // inherits is the sandbox's, and that is not where the mod's own runtime files are.
+            if (environment != null)
+                foreach (KeyValuePair<string, string> variable in environment)
+                    info.EnvironmentVariables[variable.Key] = variable.Value;
+
             try
             {
                 _child = Process.Start(info);
@@ -97,10 +117,104 @@ namespace UwUTerm.Nvim
             }
 
             _toChild = _child.StandardInput.BaseStream;
+            _fromChild = _child.StandardOutput.BaseStream;
 
+            StartReading();
+            return true;
+        }
+
+        /// <summary>
+        /// Join an editor that is already running, instead of starting one.
+        ///
+        /// The protocol does not care what it travels over - the same msgpack goes down a
+        /// socket that goes down a pipe - so an editor outside the game is reached the same
+        /// way an embedded one is. Which is the point: a neovim on the machine has the
+        /// machine's git, its compilers and its language servers, none of which exist in the
+        /// container the game runs in.
+        ///
+        /// The address is either a path, which is a unix socket, or host:port.
+        /// </summary>
+        internal bool Connect(string address)
+        {
+            Stream stream;
+
+            try
+            {
+                if (SplitPort(address, out string host, out int port))
+                {
+                    _socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp)
+                    {
+                        NoDelay = true,
+                    };
+                    _socket.Connect(host, port);
+                    stream = new NetworkStream(_socket, ownsSocket: false);
+                }
+                else if (NvimInstall.IsWindows)
+                {
+                    // "Named pipe" is neovim's word for both, but they are not the same object:
+                    // on Windows --listen opens a real named pipe, which is not a socket and
+                    // cannot be reached through one.
+                    _pipe = new NamedPipeClientStream(".", PipeName(address),
+                        PipeDirection.InOut, PipeOptions.Asynchronous);
+                    _pipe.Connect(2000);
+                    stream = _pipe;
+                }
+                else
+                {
+                    _socket = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
+                    _socket.Connect(new UnixEndPoint(address));
+                    stream = new NetworkStream(_socket, ownsSocket: false);
+                }
+            }
+            catch (Exception e)
+            {
+                _socket = null;
+                _pipe = null;
+                Ended?.Invoke($"could not reach {address} - {e.Message}");
+                return false;
+            }
+
+            _joined = true;
+            _toChild = stream;
+            _fromChild = stream;
+
+            lock (Live) Live.Add(this);
+
+            StartReading();
+            return true;
+        }
+
+        /// <summary>The pipe's own name, which is what NamedPipeClientStream wants - it puts
+        /// the \\.\pipe\ back itself, and chokes on being given it twice.</summary>
+        private static string PipeName(string address)
+        {
+            int last = address.LastIndexOf('\\');
+            return last >= 0 && last < address.Length - 1 ? address.Substring(last + 1) : address;
+        }
+
+        /// <summary>host:port, or not. A path is anything with a separator in it or no number
+        /// after the last colon, which is every socket path and no address.</summary>
+        private static bool SplitPort(string address, out string host, out int port)
+        {
+            host = null;
+            port = 0;
+
+            if (string.IsNullOrEmpty(address) || address.IndexOf('/') >= 0) return false;
+
+            int colon = address.LastIndexOf(':');
+            if (colon <= 0 || colon == address.Length - 1) return false;
+
+            if (!int.TryParse(address.Substring(colon + 1), out port) || port <= 0 || port > 65535)
+                return false;
+
+            host = address.Substring(0, colon);
+            return true;
+        }
+
+        private void StartReading()
+        {
             _reader = new System.Threading.Thread(Read) { IsBackground = true, Name = "UwUTerm.Nvim" };
             _reader.Start();
-            return true;
         }
 
         // ---- talking ---------------------------------------------------------------------
@@ -160,7 +274,8 @@ namespace UwUTerm.Nvim
 
         private void Read()
         {
-            Stream stream = _child.StandardOutput.BaseStream;
+            Stream stream = _fromChild;
+            if (stream == null) return;
 
             var buffer = new byte[64 * 1024];
             int end = 0;
@@ -193,7 +308,7 @@ namespace UwUTerm.Nvim
                 return;
             }
 
-            Stop("the editor exited");
+            Stop(Attached ? "the editor closed the connection" : "the editor exited");
         }
 
         private void Dispatch(object message)
@@ -246,7 +361,8 @@ namespace UwUTerm.Nvim
 
             // Closing the pipe is how an embedded neovim is asked to leave: it exits when its
             // channel does. Killing it outright would work too, but it would take whatever the
-            // editor had not finished writing with it.
+            // editor had not finished writing with it. An editor reached over a socket is
+            // somebody else's, so hanging up is all that happens to it.
             try { _toChild?.Close(); }
             catch (Exception) { }
 
@@ -259,8 +375,17 @@ namespace UwUTerm.Nvim
             try { _child?.Dispose(); }
             catch (Exception) { }
 
+            try { _socket?.Close(); }
+            catch (Exception) { }
+
+            try { _pipe?.Dispose(); }
+            catch (Exception) { }
+
             _child = null;
+            _socket = null;
+            _pipe = null;
             _toChild = null;
+            _fromChild = null;
         }
     }
 }

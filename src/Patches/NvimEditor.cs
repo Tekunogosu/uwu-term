@@ -27,6 +27,15 @@ namespace UwUTerm.Patches
         private static readonly Dictionary<Notepad, NvimView> Editors = new Dictionary<Notepad, NvimView>();
         private static readonly List<Notepad> Dead = new List<Notepad>();
 
+        /// <summary>How long to keep asking for a session that has just gone, before settling
+        /// for an editor of our own.</summary>
+        private const float RejoinGrace = 15f;
+
+        // Set when a joined session ends. A daemon that restarts itself is back within a second
+        // or two, and swapping the player's whole setup for a bare editor in the meantime would
+        // undo the thing they started the daemon for.
+        private static float _rejoinUntil;
+
         internal static void Apply(Harmony harmony)
         {
             Patch(harmony, typeof(NotepadListAdapter), "OnGUI", nameof(OnKey), prefix: true);
@@ -60,7 +69,7 @@ namespace UwUTerm.Patches
             }
 
             if (UwUTermPlugin.NvimDownload.Value) NvimInstall.FetchInBackground();
-            if (!NvimInstall.Available) return;
+            if (!NvimInstall.Usable) return;
 
             Adopt();
 
@@ -70,7 +79,9 @@ namespace UwUTerm.Patches
                 if (pair.Key == null || !pair.Value.Running) { Dead.Add(pair.Key); continue; }
 
                 Hide(pair.Key.listAdapter, true);
-                pair.Value.Tick();
+
+                NotepadListAdapter adapter = pair.Key.listAdapter;
+                pair.Value.Tick(adapter != null && adapter.isFocus);
             }
 
             foreach (Notepad closed in Dead) Close(closed);
@@ -91,7 +102,18 @@ namespace UwUTerm.Patches
                 TMP_FontAsset font = sample != null ? sample.font : null;
                 float size = sample != null ? sample.fontSize : 14f;
 
-                NvimView view = NvimView.Create(viewport, TerminalFont.For(font) ?? font, size, null);
+                // A session has one screen - every UI attached to it renders the same grid,
+                // sized to the smallest of them - so only the first window is offered it. The
+                // rest run an editor of their own rather than mirror it.
+                bool free = Holder(out Notepad _) == null;
+                bool waiting = free && NvimInstall.Address != null
+                                    && Time.realtimeSinceStartup < _rejoinUntil;
+
+                NvimView view = NvimView.Create(viewport, TerminalFont.For(font) ?? font, size, null,
+                                                joinSession: free, allowSpawn: !waiting);
+
+                // Nothing yet, and the session is still expected back - ask again next frame
+                // rather than settle for less.
                 if (view == null) continue;
 
                 // The game's rows stay where they are and stop drawing - the window still reads
@@ -99,16 +121,21 @@ namespace UwUTerm.Patches
                 Hide(adapter, true);
 
                 Notepad owner = window;
+                bool joined = view.Attached;
                 view.Ended += why =>
                 {
                     UwUTermPlugin.Log.LogWarning("nvim: " + why);
+                    if (joined) _rejoinUntil = Time.realtimeSinceStartup + RejoinGrace;
                     Close(owner);
                 };
 
                 Editors[window] = view;
-                view.SetName(FileName(window));
-                view.SetSource(window.GetSource());
-                view.SetFiletype(UwUTermPlugin.NvimFiletype.Value);
+
+                Notepad following = window;
+                view.BufferEntered += buffer => Retarget(following, view.PathFor(buffer));
+
+                view.Open(FileName(window), window.GetSource(), UwUTermPlugin.NvimFiletype.Value,
+                          window.rutaArchivo);
                 Report(viewport, view);
 
                 UwUTermPlugin.Log.LogInfo("nvim: editing in neovim");
@@ -233,9 +260,8 @@ namespace UwUTerm.Patches
 
             // Loading a file is also when its name becomes known, so the buffer is renamed
             // here rather than left as whatever the last one was called.
-            view.SetName(FileName(__instance));
-            view.SetSource(source);
-            view.SetFiletype(UwUTermPlugin.NvimFiletype.Value);
+            view.Open(FileName(__instance), source, UwUTermPlugin.NvimFiletype.Value,
+                      __instance.rutaArchivo);
 
             // Opening a file through the folder dialog leaves focus with the dialog that just
             // closed, so the first keystroke afterwards goes nowhere and the editor has to be
@@ -256,6 +282,42 @@ namespace UwUTerm.Patches
 
             if (adapter.selectableNotepad != null) adapter.selectableNotepad.Select();
             adapter.SetFocus(true);
+        }
+
+        /// <summary>The window holding the shared session, if one is. An editor started for a
+        /// window is not one - those are per-window, and a second gets its own.</summary>
+        private static NvimView Holder(out Notepad owner)
+        {
+            owner = null;
+
+            foreach (KeyValuePair<Notepad, NvimView> pair in Editors)
+            {
+                if (pair.Key == null || !pair.Value.Running || !pair.Value.Attached) continue;
+
+                owner = pair.Key;
+                return pair.Value;
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Point a window at the file whose buffer is on screen.
+        ///
+        /// One window, many buffers, one save button - so which file that button writes has to
+        /// follow what is being looked at. A buffer the game did not open has no path of its
+        /// own, and the empty one left here is what makes the game ask where to put it instead
+        /// of writing it over the last script that was open.
+        /// </summary>
+        private static void Retarget(Notepad window, string path)
+        {
+            if (window == null) return;
+
+            string wanted = path ?? "";
+            if (window.rutaArchivo == wanted) return;
+
+            window.rutaArchivo = wanted;
+            window.SetWindowTitleText(window.nombreVentana + (wanted.Length > 0 ? " - " + wanted : ""));
         }
 
         /// <summary>

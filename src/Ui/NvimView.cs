@@ -140,6 +140,16 @@ namespace UwUTerm.Ui
             view._ui.Flushed += () => view._dirty = true;
             view._ui.Resized += (columns, rows) => view._grid.Resize(columns, rows);
 
+            // The UI goes on before a script is opened into the session, because attaching one
+            // is what makes a start screen appear - snacks, alpha and the rest are set up on
+            // UIEnter - and a start screen takes the session's empty buffer over. Opening first
+            // hands the window whichever buffer that race left, and the window then holds a
+            // start screen instead of the code it was opened for. The grid it is given here is
+            // the smallest allowed: the window has not been laid out yet, and the first tick
+            // sends the size it turns out to have.
+            view.Measure();
+            view.Attach();
+
             return view;
         }
 
@@ -384,9 +394,15 @@ namespace UwUTerm.Ui
             _lastWidth = area.width;
             _lastHeight = area.height;
 
+            Measure();
+            return true;
+        }
+
+        /// <summary>How big a cell is, in the font the view was given.</summary>
+        private void Measure()
+        {
             _lineHeight = LineHeight();
             _advance = Advance();
-            return true;
         }
 
         // ---- the mouse -------------------------------------------------------------------
@@ -627,70 +643,101 @@ namespace UwUTerm.Ui
         /// <summary>
         /// Put a script in front of the editor.
         ///
-        /// An editor started for this window has the one buffer, so the script goes in it. A
-        /// shared session is somebody's whole working set, and dropping a script on top of
+        /// A shared session is somebody's whole working set, and dropping a script on top of
         /// whatever they had open would be rude - so each one opened gets a buffer of its own
         /// and joins the rest. That is what makes a session worth pointing at instead of
         /// starting an editor per window: :ls, :b and every plugin see all of them.
+        ///
+        /// An editor started for this window has the one buffer and no working set to disturb,
+        /// and it goes through the same choosing: its own empty buffer is what the choosing
+        /// picks, so the script lands there without a second way of putting it in. Its config
+        /// is the player's to fill too - a start screen installed there takes the buffer over
+        /// exactly as one in a session does.
         /// </summary>
         internal void Open(string name, string source, string filetype, string path = null)
         {
             if (_client == null) return;
 
-            if (!_client.Attached)
-            {
-                Load(name, source, filetype);
-                Woken();
-                return;
-            }
-
-            // The same file arriving twice is a reload, not a second script - the game sends
-            // the source again after a save - so it goes back into the buffer it already has
-            // rather than growing the session a duplicate on every write.
-            int already = BufferFor(path);
-            if (already > 0)
-            {
-                _buffer = already;
-                Load(name, source, filetype);
-                _client.Notify("nvim_set_current_buf", new object[] { already });
-                Woken();
-                return;
-            }
-
-            // Made through lua so the answer is a plain buffer number - nvim_create_buf hands
-            // back an ext-typed handle, which is fine to pass around but useless as the key for
-            // which file a buffer came from - and so the reuse below is one round trip rather
-            // than three.
+            // Choosing the buffer and filling it are one step, because everything about the
+            // session moves in between two. A UI attaching runs the player's start screen, an
+            // autocmd fires, a plugin schedules itself - and a buffer that was free when it was
+            // picked is a start screen by the time the lines arrive, which is refused. Sent as
+            // one lua call, nothing runs between the two.
             //
-            // A window opens on an empty unnamed buffer, and opening a file into it should take
-            // that buffer over the way :e does. Leaving it behind litters the session with a
-            // scratch that has no name to switch back to and no file to save to.
-            // The session's own empty buffer counts too: a headless neovim starts with one, so
-            // taking only ours would leave the player looking at a session with two scratches
-            // in it before they had opened anything.
+            // The answer is a plain buffer number: nvim_create_buf hands back an ext-typed
+            // handle, fine to pass around and useless as the key for which file a buffer came
+            // from.
+            //
+            // Which buffer, in order. A file that is already open goes back into the buffer it
+            // has - the game sends the source again after every save, and a new buffer per save
+            // would grow the session a duplicate each time. A command opened again by name goes
+            // back into the buffer of that name, which is the same script and the only way to
+            // name it twice without E95. Failing both, a window opens on an empty buffer and the
+            // script should take it over the way :e does, ours first and then the session's own -
+            // a headless neovim starts with one, and leaving it behind shows the player a session
+            // with two scratches in it before they have opened anything.
+            //
+            // Free means an ordinary listed writable buffer holding nothing, not merely an empty
+            // one. A start screen - snacks, alpha, mini.starter - takes the session's first
+            // buffer over when a UI attaches, and it is empty and unnamed until it draws itself.
+            // What it is not is ordinary: it is 'nofile', unlisted and unmodifiable.
             //
             // swapfile off because these are not files here. The script lives on the server and
             // reaches the buffer as text, and a session running the player's own config would
             // otherwise stop on E325 the moment two windows named the same buffer.
+            //
+            // The filetype is set last, once the buffer is on screen: whatever attaches on
+            // FileType attaches to the buffer it fired for, and a script coloured while it is
+            // still off screen is a script that stays grey until it is switched away from.
             const string lua =
-                "local ours = ...\n" +
-                "local function reusable(b)\n" +
+                "local reuse, ours, name, filetype, lines, byName = ...\n" +
+                "local function ordinary(b)\n" +
                 "  return b > 0 and vim.api.nvim_buf_is_valid(b)\n" +
+                "    and vim.bo[b].buftype == '' and vim.bo[b].buflisted\n" +
+                "    and vim.bo[b].modifiable and not vim.bo[b].readonly\n" +
+                "end\n" +
+                "local function tail(b)\n" +
+                "  return vim.fn.fnamemodify(vim.api.nvim_buf_get_name(b), ':t')\n" +
+                "end\n" +
+                "local function free(b)\n" +
+                "  return ordinary(b)\n" +
                 "    and vim.api.nvim_buf_get_name(b) == ''\n" +
                 "    and not vim.bo[b].modified\n" +
                 "    and vim.api.nvim_buf_line_count(b) == 1\n" +
                 "    and vim.api.nvim_buf_get_lines(b, 0, 1, false)[1] == ''\n" +
                 "end\n" +
-                "local target\n" +
+                "local target = 0\n" +
+                "if reuse > 0 and vim.api.nvim_buf_is_valid(reuse) then target = reuse end\n" +
+                "if target == 0 and byName and name ~= '' then\n" +
+                "  for _, b in ipairs(vim.api.nvim_list_bufs()) do\n" +
+                "    if target == 0 and ordinary(b) and tail(b) == name then target = b end\n" +
+                "  end\n" +
+                "end\n" +
                 "local current = vim.api.nvim_get_current_buf()\n" +
-                "if reusable(ours) then target = ours\n" +
-                "elseif reusable(current) then target = current\n" +
-                "else target = vim.api.nvim_create_buf(true, false) end\n" +
+                "if target == 0 and free(ours) then target = ours end\n" +
+                "if target == 0 and free(current) then target = current end\n" +
+                "if target == 0 then target = vim.api.nvim_create_buf(true, false) end\n" +
                 "vim.bo[target].swapfile = false\n" +
+                "if name ~= '' and tail(target) ~= name then\n" +
+                "  pcall(vim.api.nvim_buf_set_name, target, name)\n" +
+                "end\n" +
+                "vim.api.nvim_buf_set_lines(target, 0, -1, false, lines)\n" +
+                "vim.bo[target].modified = false\n" +
+                "vim.api.nvim_set_current_buf(target)\n" +
+                "if filetype ~= '' then vim.bo[target].filetype = filetype end\n" +
                 "return target";
 
-            _client.Request("nvim_exec_lua",
-                new object[] { lua, new object[] { _buffer } },
+            // A command has no file behind it, so the name it was given is all there is to
+            // recognise it by. A file has a path, which says the same thing without mistaking
+            // two files of the same name in different directories for one another.
+            bool byName = string.IsNullOrEmpty(path);
+
+            var arguments = new object[]
+            {
+                BufferFor(path), _buffer, name ?? "", filetype ?? "", Lines(source), byName
+            };
+
+            _client.Request("nvim_exec_lua", new object[] { lua, arguments },
                 (error, result) =>
                 {
                     int buffer = 0;
@@ -702,10 +749,18 @@ namespace UwUTerm.Ui
                     _buffer = buffer;
                     if (path != null) lock (_paths) _paths[buffer] = path;
 
-                    Load(name, source, filetype);
-                    _client.Notify("nvim_set_current_buf", new object[] { buffer });
                     Woken();
+                    SayHowItIsHighlighted();
                 });
+        }
+
+        /// <summary>A source as neovim takes it: one entry per line, however it was wrapped.</summary>
+        private static object[] Lines(string source)
+        {
+            string[] split = (source ?? "").Replace("\r\n", "\n").Split('\n');
+            var lines = new object[split.Length];
+            for (int i = 0; i < split.Length; i++) lines[i] = split[i];
+            return lines;
         }
 
         /// <summary>
@@ -797,11 +852,8 @@ namespace UwUTerm.Ui
         {
             if (_client == null) return;
 
-            string[] split = (source ?? "").Replace("\r\n", "\n").Split('\n');
-            var lines = new object[split.Length];
-            for (int i = 0; i < split.Length; i++) lines[i] = split[i];
-
-            _client.Request("nvim_buf_set_lines", new object[] { _buffer, 0, -1, false, lines });
+            _client.Request("nvim_buf_set_lines",
+                new object[] { _buffer, 0, -1, false, Lines(source) });
 
             // Writing the lines is what marks the buffer modified, and nobody has modified it -
             // this is the file as the server has it. Left set, :q argues about unsaved changes

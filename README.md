@@ -61,6 +61,8 @@ KnownCommands = aircrack, aireplay, airmon, apt-get, build, cat, cd, chgrp, chmo
 
 The prompt is completely customizable now. Make it look howevery you can thing. I chose not to implement the same coloring as a true terminal because honestly, its a pita to read and would have to be converted to something Unity could understand anway. 
 
+This one is **off by default**, because the game already lets you change your prompt by editing bash itself through `CodeEditor.exe -code bash`, and a prompt you wrote there should not be overwritten by one you did not. Turn on `[Features] Prompt` to hand it to the `[Prompt]` section instead. Everything else about the terminal is unaffected either way.
+
 You can change the cursor to be block, underline, or bar. see `CursorStyle`
 
 See the `[Prompt]` section of the config for all config options, I'll touch on a few here.

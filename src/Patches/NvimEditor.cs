@@ -50,6 +50,8 @@ namespace UwUTerm.Patches
             Patch(harmony, typeof(NotepadListAdapter), "OnGUI", nameof(OnKey), prefix: true);
             Patch(harmony, typeof(Notepad), "GetSource", nameof(OnGetSource), prefix: true);
             Patch(harmony, typeof(Notepad), "SetSource", nameof(OnSetSource), prefix: true);
+            Patch(harmony, typeof(ProgramVisual.VisualEditor), "ProcesaComandoExterior",
+                  nameof(OnProgramCommand), prefix: true);
         }
 
         private static void Patch(Harmony harmony, System.Type type, string method, string handler, bool prefix)
@@ -80,6 +82,7 @@ namespace UwUTerm.Patches
             if (UwUTermPlugin.NvimDownload.Value) NvimInstall.FetchInBackground();
             if (!NvimInstall.Usable) return;
 
+            NvimSessions.Tick();
             Adopt();
 
             Dead.Clear();
@@ -99,9 +102,50 @@ namespace UwUTerm.Patches
             foreach (Notepad closed in Dead) Close(closed);
         }
 
+        /// <summary>
+        /// What `CodeEditor.exe -code <name>` was asked for.
+        ///
+        /// That route has no file behind it - the source comes out of the game's own cache - so
+        /// the window has no path and the buffer would be unnamed. A language server decides
+        /// per buffer whether to attach, and an unnamed one gives it nothing to attach to: no
+        /// file, no directory, no root. So the buffer is named after the command with the
+        /// extension a script has, which is what makes it look like a script to everything in
+        /// the player's config rather than only to the one option we set.
+        ///
+        /// Two windows asking for the same thing is not a clash: each has a session of its own,
+        /// and a name is only ever taken once inside one.
+        /// </summary>
+        private static void OnProgramCommand(ProgramVisual.VisualEditor __instance, string[] comando)
+        {
+            if (comando == null || comando.Length != 2 || !comando[0].Equals("-code")) return;
+
+            var dialog = __instance.dialog;
+            var window = dialog != null ? dialog.GetComponentInChildren<Notepad>(true) : null;
+            if (window == null) return;
+
+            Named[window] = comando[1] + ".src";
+        }
+
+        /// <summary>What a window's buffer is called when the game gives it no path of its
+        /// own.</summary>
+        private static readonly Dictionary<Notepad, string> Named = new Dictionary<Notepad, string>();
+
+        /// <summary>Names belong to windows, and windows are destroyed.</summary>
+        private static void Forget()
+        {
+            Dead.Clear();
+            foreach (KeyValuePair<Notepad, string> pair in Named)
+                if (pair.Key == null) Dead.Add(pair.Key);
+
+            foreach (Notepad window in Dead) Named.Remove(window);
+            Dead.Clear();
+        }
+
         /// <summary>Find editor windows that have opened since the last look.</summary>
         private static void Adopt()
         {
+            if (Named.Count > 0) Forget();
+
             foreach (Notepad window in Object.FindObjectsOfType<Notepad>())
             {
                 if (window == null || Editors.ContainsKey(window)) continue;
@@ -114,19 +158,24 @@ namespace UwUTerm.Patches
                 TMP_FontAsset font = sample != null ? sample.font : null;
                 float size = sample != null ? sample.fontSize : 14f;
 
-                // A session has one screen - every UI attached to it renders the same grid,
-                // sized to the smallest of them - so only the first window is offered it. The
-                // rest run an editor of their own rather than mirror it.
-                bool free = Holder(out Notepad _) == null;
-                bool waiting = free && NvimInstall.Address != null
-                                    && Time.realtimeSinceStartup < _rejoinUntil;
+                // A session has one screen - every UI attached to one renders the same grid,
+                // sized to the smallest of them - so a window cannot share another's and still
+                // be its own editor. It gets one of its own on the player's machine instead,
+                // started by the session they are already running.
+                string session = NvimSessions.Take();
+                bool waiting = session == null
+                               && (NvimSessions.Coming || Time.realtimeSinceStartup < _rejoinUntil);
 
                 NvimView view = NvimView.Create(viewport, TerminalFont.For(font) ?? font, size, null,
-                                                joinSession: free, allowSpawn: !waiting);
+                                                address: session, allowSpawn: !waiting);
 
-                // Nothing yet, and the session is still expected back - ask again next frame
-                // rather than settle for less.
-                if (view == null) continue;
+                // Nothing yet, and one is still on its way - ask again next frame rather than
+                // settle for an editor with none of the player's tools in it.
+                if (view == null)
+                {
+                    if (session != null) NvimSessions.Release(session);
+                    continue;
+                }
 
                 // The game's rows stay where they are and stop drawing - the window still reads
                 // its own model for things like the title's modified marker.
@@ -226,6 +275,7 @@ namespace UwUTerm.Patches
         {
             if (window != null && Editors.TryGetValue(window, out NvimView view))
             {
+                NvimSessions.Release(view.Session);
                 view.Destroy();
                 if (window.listAdapter != null) Hide(window.listAdapter, false);
             }
@@ -233,11 +283,16 @@ namespace UwUTerm.Patches
             Menu(window, false);
             Menus.Remove(window);
             Sizes.Remove(window);
+            Named.Remove(window);
             Editors.Remove(window);
         }
 
         /// <summary>The game is going away. Take the editors with it.</summary>
-        internal static void Shutdown() => CloseAll();
+        internal static void Shutdown()
+        {
+            CloseAll();
+            NvimSessions.Shutdown();
+        }
 
         private static void CloseAll()
         {
@@ -398,22 +453,6 @@ namespace UwUTerm.Patches
             adapter.SetFocus(true);
         }
 
-        /// <summary>The window holding the shared session, if one is. An editor started for a
-        /// window is not one - those are per-window, and a second gets its own.</summary>
-        private static NvimView Holder(out Notepad owner)
-        {
-            owner = null;
-
-            foreach (KeyValuePair<Notepad, NvimView> pair in Editors)
-            {
-                if (pair.Key == null || !pair.Value.Running || !pair.Value.Attached) continue;
-
-                owner = pair.Key;
-                return pair.Value;
-            }
-
-            return null;
-        }
 
         /// <summary>
         /// Point a window at the file whose buffer is on screen.
@@ -443,8 +482,12 @@ namespace UwUTerm.Patches
         /// </summary>
         private static string FileName(Notepad window)
         {
-            string path = window == null ? null : window.rutaArchivo;
-            return string.IsNullOrEmpty(path) ? null : System.IO.Path.GetFileName(path);
+            if (window == null) return null;
+
+            string path = window.rutaArchivo;
+            if (!string.IsNullOrEmpty(path)) return System.IO.Path.GetFileName(path);
+
+            return Named.TryGetValue(window, out string named) ? named : null;
         }
     }
 }

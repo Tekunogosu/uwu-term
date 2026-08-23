@@ -50,37 +50,6 @@ namespace UwUTerm.Patches
             harmony.Patch(target, prefix: new HarmonyMethod(
                 typeof(WindowArea).GetMethod(nameof(OnMaximize),
                     System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)));
-
-            var opened = AccessTools.Method(typeof(uDialog), "Start");
-            if (opened != null)
-                harmony.Patch(opened, postfix: new HarmonyMethod(
-                    typeof(WindowArea).GetMethod(nameof(SayWhereItOpened),
-                        System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)));
-        }
-
-        /// <summary>
-        /// Where a window came up, and what it came up inside.
-        ///
-        /// A window opening off the top of the screen is a position in some rect, and which rect
-        /// is the part that cannot be worked out from here - a dialog is parented to whatever the
-        /// call that made it passed in. So the parent is named along with its size, and both can
-        /// be held against a bar that changed.
-        /// </summary>
-        private static void SayWhereItOpened(uDialog __instance)
-        {
-            if (!UwUTermPlugin.ScreenDebug.Value || __instance == null) return;
-
-            RectTransform rect = __instance.RectTransform;
-            var parent = rect != null ? rect.parent as RectTransform : null;
-            if (rect == null || parent == null) return;
-
-            UwUTermPlugin.Log.LogInfo(
-                $"window opened: '{__instance.name}' {rect.rect.width:F0}x{rect.rect.height:F0} " +
-                $"at ({rect.anchoredPosition.x:F0},{rect.anchoredPosition.y:F0}) " +
-                $"anchors ({rect.anchorMin.x:F2},{rect.anchorMin.y:F2})-" +
-                $"({rect.anchorMax.x:F2},{rect.anchorMax.y:F2}) pivot ({rect.pivot.x:F2},{rect.pivot.y:F2}) " +
-                $"- drawn y {DesktopBar.BottomEdgeWorld(rect):F0}..{DesktopBar.TopEdgeWorld(rect):F0} " +
-                $"in '{parent.name}' {parent.rect.width:F0}x{parent.rect.height:F0}");
         }
 
         private static bool OnMaximize(uDialog __instance)

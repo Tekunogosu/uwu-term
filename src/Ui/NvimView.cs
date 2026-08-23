@@ -63,6 +63,10 @@ namespace UwUTerm.Ui
         /// than an editor of its own.</summary>
         internal bool Attached => _client is { Attached: true };
 
+        /// <summary>The socket this view is a UI on, when it was given one of its own to use.
+        /// Whoever handed it over wants it back when the window closes.</summary>
+        internal string Session { get; private set; }
+
         /// <summary>Whether neovim is taking the mouse, and so whether a click in this view is
         /// the editor's rather than the game's.</summary>
         internal bool MouseWanted => _ui != null && _ui.MouseWanted;
@@ -95,20 +99,20 @@ namespace UwUTerm.Ui
         /// editor at all.
         /// </summary>
         internal static NvimView Create(RectTransform parent, TMP_FontAsset font, float fontSize,
-                                        string file, bool joinSession = true, bool allowSpawn = true)
+                                        string file, string address = null, bool allowSpawn = true)
         {
             if (parent == null || !NvimInstall.Usable) return null;
 
             var view = new NvimView();
             view.Build(parent, font, fontSize);
 
-            string address = joinSession ? NvimInstall.Address : null;
-
             // Joining is worth trying and not worth insisting on. If nothing is listening the
             // player has not started a session, which is a reason to run an editor here rather
             // than a reason to have none.
             if (address != null && !view.Join(address) && allowSpawn && NvimInstall.Available)
                 UwUTermPlugin.Log.LogInfo("nvim: starting an editor in the game instead");
+
+            if (view._client != null) view.Session = address;
 
             // -n skips the swap file: the buffer lives in the game's filesystem, not on this
             // machine, and a swap beside it would be a file nobody asked for.
@@ -175,13 +179,22 @@ namespace UwUTerm.Ui
 
         private void Ask()
         {
+            // Language servers are asked about too: a buffer can hold the right filetype, with
+            // nothing attached to it that would colour anything, and from the game those two
+            // look the same.
             const string lua =
                 "local b = ...\n" +
                 "local ok, hl = pcall(function() return vim.treesitter.highlighter.active[b] ~= nil end)\n" +
-                "return string.format('filetype=%s syntax=%s treesitter=%s name=%s lines=%d',\n" +
+                "local servers = {}\n" +
+                "local fine, clients = pcall(function()\n" +
+                "  return (vim.lsp.get_clients or vim.lsp.get_active_clients)({ bufnr = b })\n" +
+                "end)\n" +
+                "if fine and clients then for _, c in ipairs(clients) do servers[#servers + 1] = c.name end end\n" +
+                "return string.format('filetype=%s syntax=%s treesitter=%s lsp=%s name=%s lines=%d',\n" +
                 "  vim.bo[b].filetype == '' and '(none)' or vim.bo[b].filetype,\n" +
                 "  vim.b[b].current_syntax or '(none)',\n" +
                 "  tostring(ok and hl or false),\n" +
+                "  #servers == 0 and '(none)' or table.concat(servers, ','),\n" +
                 "  vim.api.nvim_buf_get_name(b) == '' and '(unnamed)' or vim.api.nvim_buf_get_name(b),\n" +
                 "  vim.api.nvim_buf_line_count(b))";
 
@@ -210,7 +223,10 @@ namespace UwUTerm.Ui
                 if (said.Length > 0) said.Append(", ");
                 if (said.Length > 120) { said.Append("..."); break; }
 
-                string text = argument is object[] many ? $"[{many.Length}]" : argument?.ToString() ?? "nil";
+                string text =
+                    argument is object[] many ? $"[{many.Length}]"
+                    : argument is System.Collections.IDictionary map ? $"{{{map.Count}}}"
+                    : argument?.ToString() ?? "nil";
                 said.Append(text.Length > 60 ? text.Substring(0, 60) + "..." : text);
             }
 
@@ -428,10 +444,41 @@ namespace UwUTerm.Ui
                 return;
             }
 
+            Hover();
+
             float wheel = Input.mouseScrollDelta.y;
             if (Mathf.Abs(wheel) > 0.01f && Under(out int overRow, out int overColumn, clamp: false))
                 SendMouse("wheel", wheel > 0f ? "up" : "down", overRow, overColumn);
         }
+
+        /// <summary>
+        /// Where the pointer is, when no button is down.
+        ///
+        /// A terminal reports motion while neovim asks for it, and neovim uses it to follow the
+        /// pointer over its own menus - the entry under the cursor is the highlighted one. We
+        /// were only ever reporting presses, so a menu had no idea where the pointer was and
+        /// nothing lit up under it.
+        ///
+        /// Sent when the cell changes rather than when the pointer does: a mouse crossing a
+        /// character is the smallest movement the editor can tell apart, so anything finer is a
+        /// message it cannot act on.
+        /// </summary>
+        private void Hover()
+        {
+            if (!Under(out int row, out int column, clamp: false))
+            {
+                _hoverRow = _hoverColumn = -1;
+                return;
+            }
+
+            if (row == _hoverRow && column == _hoverColumn) return;
+
+            _hoverRow = row;
+            _hoverColumn = column;
+            SendMouse("move", "", row, column);
+        }
+
+        private int _hoverRow = -1, _hoverColumn = -1;
 
         /// <summary>Unity numbers the buttons, neovim names them.</summary>
         private static string Named(int button) =>
@@ -593,6 +640,7 @@ namespace UwUTerm.Ui
             if (!_client.Attached)
             {
                 Load(name, source, filetype);
+                Woken();
                 return;
             }
 
@@ -605,6 +653,7 @@ namespace UwUTerm.Ui
                 _buffer = already;
                 Load(name, source, filetype);
                 _client.Notify("nvim_set_current_buf", new object[] { already });
+                Woken();
                 return;
             }
 
@@ -648,13 +697,14 @@ namespace UwUTerm.Ui
                     try { if (error == null && result != null) buffer = System.Convert.ToInt32(result); }
                     catch (System.Exception) { }
 
-                    if (buffer <= 0) { Load(name, source, filetype); return; }
+                    if (buffer <= 0) { Load(name, source, filetype); Woken(); return; }
 
                     _buffer = buffer;
                     if (path != null) lock (_paths) _paths[buffer] = path;
 
                     Load(name, source, filetype);
                     _client.Notify("nvim_set_current_buf", new object[] { buffer });
+                    Woken();
                 });
         }
 
@@ -719,6 +769,28 @@ namespace UwUTerm.Ui
             SetName(name);
             SetSource(source);
             SetFiletype(filetype);
+        }
+
+        /// <summary>
+        /// Tell the editor a file has arrived, the way opening one would.
+        ///
+        /// A buffer filled through the API fires none of the events a file open fires. Nothing
+        /// here is a file - a script lives on the server and reaches the buffer as text - so
+        /// setting the lines and the filetype is the whole of it, and a config that waits for
+        /// BufReadPost before loading anything waits forever. Which is most of them: a plugin
+        /// manager that defers work until a file is opened is the normal arrangement, and a
+        /// language server that never attaches leaves a script with the right filetype and no
+        /// colour in it at all.
+        ///
+        /// Announcing it is what a real open does anyway, so the editor sees what it expects
+        /// rather than a buffer that appeared by magic.
+        /// </summary>
+        private void Woken()
+        {
+            if (_client == null) return;
+
+            _client.Request("nvim_exec_autocmds",
+                new object[] { "BufReadPost", new Dictionary<string, object> { { "buffer", _buffer } } });
         }
 
         internal void SetSource(string source)

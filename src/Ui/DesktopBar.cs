@@ -115,10 +115,6 @@ namespace UwUTerm.Ui
             {
                 _applied.KeepTaskBarClear();
 
-                // Only for the game's own bar. Ours answers the same key for itself.
-                if (UwUTermPlugin.DumpBar.Value.IsDown())
-                    TopBarReport.Dissect(_applied._top, _applied._taskBar, asked: true);
-
                 return;
             }
 
@@ -357,8 +353,6 @@ namespace UwUTerm.Ui
 
             if (!line.childControlWidth) line.childControlWidth = true;
 
-            TopBarReport.WhenChanged(_top, _taskBar);
-            TopBarReport.Watch(_top, _taskBar, _widgetsEdge, _widgetsWorld);
 
             for (int i = 0; i < _taskBar.childCount; i++)
             {
@@ -723,9 +717,17 @@ namespace UwUTerm.Ui
             UwUTermPlugin.Log.LogInfo("desktop: bars put back the way the game had them");
         }
 
-        /// <summary>What the bar came out as, once, at the moment it is rearranged. The same
-        /// description is written again whenever the row of task buttons changes shape.</summary>
-        private void Report() => TopBarReport.Dissect(_top, _taskBar);
+        /// <summary>What the strip came out as, for the one path that still rearranges the
+        /// game's own bar rather than drawing ours.</summary>
+        private void Report()
+        {
+            if (!UwUTermPlugin.ScreenDebug.Value) return;
+
+            UwUTermPlugin.Log.LogInfo(
+                $"desktop: bar {_top.rect.width:F0}x{_top.rect.height:F0}, " +
+                $"strip {_taskBar.rect.width:F0}px from {_taskBar.offsetMin.x:F0}, " +
+                $"widgets from {_widgetsEdge:F0}");
+        }
 
         private static RectTransform Find(Transform parent, string name)
         {

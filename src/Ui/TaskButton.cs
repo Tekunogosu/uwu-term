@@ -25,6 +25,10 @@ namespace UwUTerm.Ui
         /// <summary>Room for the icon at the left of a button, in pixels before scaling.</summary>
         private const float IconRoom = 26f;
 
+        /// <summary>How long a button takes to light up under the pointer. Short enough to feel
+        /// like a response and long enough not to flicker while the pointer crosses a row.</summary>
+        private const float HoverFade = 0.08f;
+
         private readonly RectTransform _root;
         private readonly Image _background;
         private readonly RectTransform _icon;
@@ -146,18 +150,35 @@ namespace UwUTerm.Ui
         {
             if (_background == null) return;
 
-            if (first) _background.color = new Color(1f, 0.9f, 0.1f, 1f);
-            else if (_theme != null) _background.color = _focused ? _theme.taskbar_focused : _theme.taskbar_task;
+            if (!first) { Paint(_theme); return; }
+
+            _background.color = new Color(1f, 0.9f, 0.1f, 1f);
+
+            // Plain white in the block, so what is seen is the tint rather than the tint through
+            // the theme.
+            var button = _root.GetComponent<Button>();
+            if (button == null) return;
+
+            ColorBlock colors = button.colors;
+            colors.normalColor = colors.highlightedColor = colors.pressedColor = colors.selectedColor = Color.white;
+            button.colors = colors;
         }
 
+        /// <summary>
+        /// The player's colours, put where Unity's own hover can use them.
+        ///
+        /// A button tints its graphic through its colour block, so the graphic is left white and
+        /// the theme's colours go into the block instead. That is what makes hovering show: the
+        /// same mechanism the game's own buttons use, rather than a colour written once that
+        /// nothing can vary.
+        /// </summary>
         internal void Paint(UI_Theme theme)
         {
             if (theme == null) return;
 
             _theme = theme;
-            if (_background != null)
-                _background.color = _focused ? theme.taskbar_focused : theme.taskbar_task;
 
+            if (_background != null) _background.color = Color.white;
             if (_label != null) _label.color = theme.taskbar_text;
             if (_task != null && _task.iconImg != null) _task.iconImg.color = theme.taskbar_icons;
 
@@ -165,26 +186,12 @@ namespace UwUTerm.Ui
             if (button == null) return;
 
             ColorBlock colors = button.colors;
-            colors.normalColor = Color.white;
-            colors.highlightedColor = _focused
-                ? Multiply(theme.taskbar_focused_highlight, theme.taskbar_focused)
-                : Multiply(theme.taskbar_task_highlight, theme.taskbar_task);
+            colors.normalColor = _focused ? theme.taskbar_focused : theme.taskbar_task;
+            colors.highlightedColor = _focused ? theme.taskbar_focused_highlight : theme.taskbar_task_highlight;
             colors.pressedColor = colors.highlightedColor;
-            colors.selectedColor = Color.white;
+            colors.selectedColor = colors.normalColor;
+            colors.fadeDuration = HoverFade;
             button.colors = colors;
-        }
-
-        /// <summary>A button tints its own graphic, so a highlight colour has to be expressed
-        /// against the colour already on it rather than as itself.</summary>
-        private static Color Multiply(Color32 highlight, Color32 normal)
-        {
-            Color a = highlight;
-            Color b = normal;
-            return new Color(
-                b.r > 0.01f ? a.r / b.r : 1f,
-                b.g > 0.01f ? a.g / b.g : 1f,
-                b.b > 0.01f ? a.b / b.b : 1f,
-                1f);
         }
 
         internal void Destroy()

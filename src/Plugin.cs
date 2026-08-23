@@ -60,6 +60,7 @@ namespace UwUTerm
         internal static ConfigEntry<string> NvimAddress;
         internal static ConfigEntry<string> NvimConfig;
         internal static ConfigEntry<string> NvimFiletype;
+        internal static ConfigEntry<bool> NvimSessionPerWindow;
         internal static ConfigEntry<bool> NvimDownload;
         internal static ConfigEntry<float> BarSpacing;
         internal static ConfigEntry<bool> OwnTopBar;
@@ -142,12 +143,16 @@ namespace UwUTerm
                 "holds whatever you typed, in-game passwords included. IgnoreSpacePrefix and\n" +
                 "IgnorePattern under [History] can keep chosen commands out of it.");
 
-            CustomPrompt = Config.Bind("Features", "Prompt", true,
+            CustomPrompt = Config.Bind("Features", "Prompt", false,
                 "Draw the prompt from the [Prompt] section instead of the game's own.\n" +
                 "\n" +
-                "Off leaves the prompt exactly as the game writes it and changes nothing else\n" +
-                "about the terminal - the screen, input handling, history and completion are\n" +
-                "all still ours.");
+                "Off by default: the game has its own way to change the prompt, by editing bash\n" +
+                "through CodeEditor.exe -code bash, and a prompt the player has written there is\n" +
+                "not one to overwrite without being asked. On, the [Prompt] section decides\n" +
+                "instead.\n" +
+                "\n" +
+                "Either way nothing else about the terminal changes - the screen, input\n" +
+                "handling, history and completion are ours in both cases.");
 
             FeatureMail = Config.Bind("Features", "Mail", true,
                 "Add a headers link to each message in the mail client.");
@@ -359,6 +364,19 @@ namespace UwUTerm
                 "at instead. On a native install that is your own neovim config, which is\n" +
                 "usually what you want. Under flatpak Steam it is\n" +
                 "~/.var/app/com.valvesoftware.Steam/config/nvim, which is nobody's.");
+
+            NvimSessionPerWindow = Config.Bind("Editor", "NvimSessionPerWindow", true,
+                "Give every editor window a neovim of its own on your machine.\n" +
+                "\n" +
+                "One neovim has one screen: two windows on the same session show the same\n" +
+                "buffer at the size of the smaller one, so a second window cannot share the\n" +
+                "first's and still be its own editor. Instead the session you are already\n" +
+                "running starts another beside it, which means every window gets your config,\n" +
+                "your plugins and your language servers rather than the bare one that ships\n" +
+                "with the mod.\n" +
+                "\n" +
+                "Needs a session listening on NvimAddress - nvim-daemon.sh, or any neovim\n" +
+                "started with --listen. Without one, editors run inside the game as before.");
 
             NvimFiletype = Config.Bind("Editor", "NvimFiletype", "greyscript",
                 "The filetype neovim is told the buffer is. Highlighting follows from this, so\n" +

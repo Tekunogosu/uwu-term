@@ -62,16 +62,14 @@ namespace UwUTerm
         internal static ConfigEntry<string> NvimFiletype;
         internal static ConfigEntry<bool> NvimSessionPerWindow;
         internal static ConfigEntry<bool> NvimDownload;
-        internal static ConfigEntry<float> BarSpacing;
-        internal static ConfigEntry<bool> OwnTopBar;
         internal static ConfigEntry<float> BarScale;
         internal static ConfigEntry<float> BarHeight;
         internal static ConfigEntry<float> TaskWidth;
         internal static ConfigEntry<float> MinTaskWidth;
         internal static ConfigEntry<float> BarFontSize;
         internal static ConfigEntry<float> BarGap;
+        internal static ConfigEntry<float> MenuGap;
         internal static ConfigEntry<float> WidgetPadding;
-        internal static ConfigEntry<bool> BarTint;
         internal static ConfigEntry<KeyboardShortcut> DumpBar;
         internal static ConfigEntry<bool> SkipDragFocus;
         internal static ConfigEntry<bool> SnapPreview;
@@ -86,6 +84,7 @@ namespace UwUTerm
         internal static ConfigEntry<bool> ScreenDebug;
         internal static ConfigEntry<bool> ListFonts;
         internal static ConfigEntry<bool> DumpDesktop;
+        internal static ConfigEntry<bool> BarTint;
         internal static ConfigEntry<bool> ProbeHost;
         internal static ConfigEntry<bool> SnapDebug;
         internal static ConfigEntry<bool> NvimDebug;
@@ -132,8 +131,13 @@ namespace UwUTerm
                 "the [Editor] section. Without one the game's editor opens as normal.");
 
             FeatureDesktop = Config.Bind("Features", "Desktop", true,
-                "Put the taskbar, clock and widgets in one bar along the top, and give the\n" +
-                "space the bottom bar used back to the desktop.");
+                "Draw the desktop's bar ourselves: the taskbar, clock and widgets in one bar\n" +
+                "along the top, and the space the bottom bar used given back to the desktop.\n" +
+                "\n" +
+                "Off leaves the game's own two bars exactly as they are. Takes effect on\n" +
+                "restart - the bar hosts the game's own widgets, so handing them back is a\n" +
+                "thing done at startup rather than mid-session. The [Desktop] section below\n" +
+                "sizes and colours the bar this draws.");
 
             PersistHistory = Config.Bind("Features", "PersistHistory", true,
                 "Keep command history across terminals and sessions, in\n" +
@@ -395,15 +399,6 @@ namespace UwUTerm
 
             // ---- desktop -----------------------------------------------------------------
 
-            OwnTopBar = Config.Bind("Desktop", "OwnTopBar", true,
-                "Draw the desktop's top bar ourselves instead of rearranging the game's.\n" +
-                "\n" +
-                "The game's bar sizes itself through layout groups and content fitters, which is\n" +
-                "why a row of window buttons could cover the widgets beside it however carefully\n" +
-                "it was measured from outside. Ours places everything in screen pixels, and\n" +
-                "builds a window's button once rather than rebuilding every button whenever any\n" +
-                "window is focused. Takes effect on restart.");
-
             BarScale = Config.Bind("Desktop", "BarScale", 1f,
                 "How big the bar is drawn, where 1 is one pixel per pixel.\n" +
                 "\n" +
@@ -413,17 +408,14 @@ namespace UwUTerm
                 "The widgets it hosts keep following the game's setting, so they stay the size\n" +
                 "you are used to.");
 
-            BarTint = Config.Bind("Desktop", "BarTint", false,
-                "Paint each part of the bar a different colour.\n" +
-                "\n" +
-                "For when the log and the screen disagree about where something is: the menu\n" +
-                "button goes red, the user name green, the strip holding the window buttons a\n" +
-                "translucent blue, and the first window button yellow. A screenshot then says\n" +
-                "which object is which, without trusting any measurement to say it.");
-
             BarGap = Config.Bind("Desktop", "BarGap", 10f,
                 "Pixels between the groups in our own bar - the menu button, the user name, the\n" +
                 "row of window buttons, the widgets and the clock. In pixels before BarScale.");
+
+            MenuGap = Config.Bind("Desktop", "MenuGap", 5f,
+                "Pixels between the start button and the user name beside it. The two name whose\n" +
+                "desktop this is and read as one thing, so they stand closer than the groups do.\n" +
+                "In pixels before BarScale.");
 
             WidgetPadding = Config.Bind("Desktop", "WidgetPadding", 5f,
                 "Pixels of room around each widget, so they do not touch each other. In pixels\n" +
@@ -442,10 +434,6 @@ namespace UwUTerm
 
             BarFontSize = Config.Bind("Desktop", "BarFontSize", 15f,
                 "Size of the text on a window button, in pixels before BarScale.");
-
-            BarSpacing = Config.Bind("Desktop", "BarSpacing", 12f,
-                "Pixels between the things in the top bar. The gap before the window list is\n" +
-                "twice this.");
 
             // ---- mail --------------------------------------------------------------------
 
@@ -498,6 +486,14 @@ namespace UwUTerm
             DumpDesktop = Config.Bind("Diagnostics", "DumpDesktop", false,
                 "Log the desktop's UI hierarchy once - what is parented where and how it is\n" +
                 "anchored.");
+
+            BarTint = Config.Bind("Diagnostics", "BarTint", false,
+                "Paint each part of the top bar a different colour.\n" +
+                "\n" +
+                "For when the log and the screen disagree about where something is: the menu\n" +
+                "button goes red, the user name green, the strip holding the window buttons a\n" +
+                "translucent blue, and the first window button yellow. A screenshot then says\n" +
+                "which object is which, without trusting any measurement to say it.");
 
             ProbeHost = Config.Bind("Diagnostics", "ProbeHost", false,
                 "Log once what the game process can reach: its environment, which directories\n" +
@@ -705,7 +701,6 @@ namespace UwUTerm
             HostProbe.Tick();
             Patches.NvimEditor.Tick();
             Ui.TopBar.Tick();
-            Ui.DesktopBar.Tick();
             PollConfigFile();
         }
 

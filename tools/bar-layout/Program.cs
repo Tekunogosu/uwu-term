@@ -85,7 +85,7 @@ namespace UwUTerm.Bar.Tests
 
         private static void EndsArePlacedInwards()
         {
-            var bar = new BarLayout { Width = 1000f, Gap = 10f, Padding = 5f };
+            var bar = new BarLayout { Width = 1000f, Gap = 10f, MenuGap = 6f, Padding = 5f };
             var left = new Slot[2];
             var right = new Slot[2];
 
@@ -93,8 +93,8 @@ namespace UwUTerm.Bar.Tests
             float rightStart = bar.PlaceRight(new[] { 100f, 20f }, 2, right);
 
             Is("the first thing sits at the padding", Same(left[0].X, 5f));
-            Is("the second follows a gap later", Same(left[1].X, 55f));
-            Is("and the left ends after it", Same(leftEnd, 105f));
+            Is("the user name follows the button's own gap", Same(left[1].X, 51f));
+            Is("and the left ends after it", Same(leftEnd, 101f));
 
             Is("the first thing on the right is in the corner", Same(right[0].Right, 995f));
             Is("the second sits inside it", Same(right[1].Right, 885f));
@@ -103,7 +103,7 @@ namespace UwUTerm.Bar.Tests
 
         private static void SomethingSwitchedOffLeavesNoHole()
         {
-            var bar = new BarLayout { Width = 1000f, Gap = 10f, Padding = 0f };
+            var bar = new BarLayout { Width = 1000f, MenuGap = 10f, Padding = 0f };
             var left = new Slot[3];
 
             float end = bar.PlaceLeft(new[] { 40f, 0f, 30f }, 3, left);

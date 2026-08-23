@@ -38,6 +38,11 @@ namespace UwUTerm.Bar
         /// <summary>Between the ends of the bar and the first thing in from them.</summary>
         public float Padding { get; set; } = 8f;
 
+        /// <summary>Between the things at the left end - the start button and the user name
+        /// beside it. They name whose desktop this is and read as one thing, so they stand
+        /// closer together than the bar's groups do.</summary>
+        public float MenuGap { get; set; } = 5f;
+
         /// <summary>The width a task button asks for when the row is not crowded.</summary>
         public float TaskWidth { get; set; } = 180f;
 
@@ -46,9 +51,10 @@ namespace UwUTerm.Bar
         public float MinTaskWidth { get; set; } = 40f;
 
         /// <summary>
-        /// Lay things out from the left edge inwards, in the order given, and answer where the
-        /// last of them ends. A width of zero takes no room and no gap, so something switched
-        /// off does not leave a hole where it used to be.
+        /// Lay the left end out from the edge inwards, in the order given, and answer where the
+        /// last of them ends. They stand <see cref="MenuGap"/> apart rather than <see cref="Gap"/>.
+        /// A width of zero takes no room and no gap, so something switched off does not leave a
+        /// hole where it used to be.
         /// </summary>
         public float PlaceLeft(float[] widths, int count, Slot[] into)
         {
@@ -59,10 +65,10 @@ namespace UwUTerm.Bar
                 if (widths[i] <= 0f) { into[i] = new Slot(x, 0f); continue; }
 
                 into[i] = new Slot(x, widths[i]);
-                x += widths[i] + Gap;
+                x += widths[i] + MenuGap;
             }
 
-            return x > Padding ? x - Gap : Padding;
+            return x > Padding ? x - MenuGap : Padding;
         }
 
         /// <summary>

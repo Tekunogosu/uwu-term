@@ -139,7 +139,7 @@ namespace UwUTerm.Ui
         internal void Say(System.Text.StringBuilder sb, int index)
         {
             sb.Append($"topbar:   [{index}] '{(_task != null && _task.Dialog != null ? _task.Dialog.name : "?")}' ")
-              .Append($"drawn {DesktopBar.LeftEdgeWorld(_root):F0}..{DesktopBar.RightEdgeWorld(_root):F0}, ")
+              .Append($"drawn {WorldEdge.Left(_root):F0}..{WorldEdge.Right(_root):F0}, ")
               .Append($"at ({_root.anchoredPosition.x:F0},{_root.anchoredPosition.y:F0}) ")
               .Append($"size {_root.sizeDelta.x:F0}x{_root.sizeDelta.y:F0}\n");
         }

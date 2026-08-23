@@ -11,10 +11,10 @@ namespace UwUTerm.Ui
     /// <summary>
     /// A top bar the mod owns.
     ///
-    /// The bar it replaces was rearranged rather than owned: its widths came from layout groups
-    /// and content-size fitters nobody here controls, and holding a row of task buttons clear of
-    /// the widgets meant measuring a rect the game had laid out and hoping it bounded what it
-    /// drew. It did not, and no amount of measuring from outside was going to make it.
+    /// Owned rather than rearranged. The game's bar takes its widths from layout groups and
+    /// content-size fitters nothing here controls, so holding a row of task buttons clear of the
+    /// widgets by measuring a rect the game laid out is measuring a number that does not bound
+    /// what it draws - and no care taken from outside makes it one.
     ///
     /// So nothing here is laid out by anything else. Positions come from <see cref="BarLayout"/>,
     /// which is arithmetic with no Unity in it and a test that runs without a game. What is left
@@ -46,9 +46,9 @@ namespace UwUTerm.Ui
 
         private static TopBar _applied;
 
-        /// <summary>Whether this bar is the one drawing the desktop's furniture. The old
-        /// rearrangement steps aside when it is - two of them would fight over the same
-        /// objects.</summary>
+        /// <summary>Whether this bar is drawing the desktop's furniture. False until it has
+        /// taken the bar over, and for the whole session when the feature is off - the game's
+        /// own bar is then left to draw itself as it always did.</summary>
         internal static bool Owns => _applied != null;
 
         private readonly BarLayout _layout = new BarLayout();
@@ -63,6 +63,7 @@ namespace UwUTerm.Ui
 
         private RectTransform _menu, _startMenu, _user, _clock, _calendar;
         private string _reported = "";
+        private string _userName;
         private readonly List<RectTransform> _widgets = new List<RectTransform>();
 
         private readonly Dictionary<uDialog, TaskButton> _buttons = new Dictionary<uDialog, TaskButton>();
@@ -85,10 +86,14 @@ namespace UwUTerm.Ui
 
         internal static void Tick()
         {
-            if (!UwUTermPlugin.OwnTopBar.Value) return;
-
             if (_applied == null)
             {
+                // Read once, at the only moment it can be acted on. Adopting reparents the
+                // game's own widgets and switches its layout groups off, so a session that
+                // has one bar keeps it: turning the setting off puts the bar back at the next
+                // start, not mid-frame.
+                if (!UwUTermPlugin.FeatureDesktop.Value) return;
+
                 var bar = new TopBar();
                 if (!bar.Adopt()) return;
 
@@ -150,18 +155,18 @@ namespace UwUTerm.Ui
                 if (!graphic.gameObject.activeInHierarchy) continue;
 
                 RectTransform rect = graphic.rectTransform;
-                if (DesktopBar.LeftEdgeWorld(rect) >= edge) continue;
-                if (DesktopBar.RightEdgeWorld(rect) <= 0f) continue;
+                if (WorldEdge.Left(rect) >= edge) continue;
+                if (WorldEdge.Right(rect) <= 0f) continue;
 
                 // Only what is up here with the bar. The desktop below is full of things that
                 // start left of this and have nothing to do with it.
-                if (DesktopBar.BottomEdgeWorld(rect) >= UnityEngine.Screen.height) continue;
-                if (DesktopBar.TopEdgeWorld(rect) <= UnityEngine.Screen.height - _barHeight) continue;
+                if (WorldEdge.Bottom(rect) >= UnityEngine.Screen.height) continue;
+                if (WorldEdge.Top(rect) <= UnityEngine.Screen.height - _barHeight) continue;
 
                 if (++found > 24) { sb.Append("topbar:     ... and more\n"); break; }
 
                 sb.Append($"topbar:     '{Path(rect, desktop)}' <{graphic.GetType().Name}> ")
-                  .Append($"x {DesktopBar.LeftEdgeWorld(rect):F0}..{DesktopBar.RightEdgeWorld(rect):F0}")
+                  .Append($"x {WorldEdge.Left(rect):F0}..{WorldEdge.Right(rect):F0}")
                   .Append(graphic is TMP_Text text ? $" text '{text.text}'" : "")
                   .Append('\n');
             }
@@ -184,7 +189,7 @@ namespace UwUTerm.Ui
 
             sb.Append($"topbar:   {what} '{item.name}' ")
               .Append(item.gameObject.activeSelf ? "" : "[off] ")
-              .Append($"drawn {DesktopBar.LeftEdgeWorld(item):F0}..{DesktopBar.RightEdgeWorld(item):F0}, ")
+              .Append($"drawn {WorldEdge.Left(item):F0}..{WorldEdge.Right(item):F0}, ")
               .Append($"rect {item.rect.width:F0}x{item.rect.height:F0} ")
               .Append($"at ({item.anchoredPosition.x:F0},{item.anchoredPosition.y:F0}) ")
               .Append($"scale {item.lossyScale.x:F2}\n");
@@ -338,6 +343,7 @@ namespace UwUTerm.Ui
             Hide();
             Rescale();
             Sync();
+            FitUserName();
             Place();
             KeepOnTop();
             Tint();
@@ -378,7 +384,7 @@ namespace UwUTerm.Ui
         {
             if (float.IsNaN(_placed)) return;
 
-            float now = DesktopBar.LeftEdgeWorld(_rowRoot);
+            float now = WorldEdge.Left(_rowRoot);
             if (Mathf.Abs(now - _placed) < 1f) { _drifted = false; return; }
 
             if (_drifted) return;
@@ -389,7 +395,7 @@ namespace UwUTerm.Ui
                 $"something moves it after we do. The row is at " +
                 $"({_rowRoot.anchoredPosition.x:F0},{_rowRoot.anchoredPosition.y:F0}) " +
                 $"scale {_rowRoot.localScale.x:F2}/{_rowRoot.lossyScale.x:F2}, inside a strip " +
-                $"drawn from {DesktopBar.LeftEdgeWorld(_strip):F0} at " +
+                $"drawn from {WorldEdge.Left(_strip):F0} at " +
                 $"({_strip.anchoredPosition.x:F0},{_strip.anchoredPosition.y:F0}) " +
                 $"with {Layouts(_strip)}");
         }
@@ -536,6 +542,7 @@ namespace UwUTerm.Ui
             _layout.Width = UnityEngine.Screen.width;
             _layout.Gap = Mathf.Max(0f, UwUTermPlugin.BarGap.Value) * wanted;
             _layout.Padding = _layout.Gap;
+            _layout.MenuGap = Mathf.Max(0f, UwUTermPlugin.MenuGap.Value) * wanted;
             _layout.TaskWidth = UwUTermPlugin.TaskWidth.Value * wanted;
             _layout.MinTaskWidth = UwUTermPlugin.MinTaskWidth.Value * wanted;
         }
@@ -621,8 +628,8 @@ namespace UwUTerm.Ui
             // the pixel it should. Nothing here needs the strip's own position, size or scale to
             // be anything in particular, which is what makes it safe to leave alone.
             float scale = Mathf.Abs(_strip.lossyScale.x) > 0.001f ? _strip.lossyScale.x : 1f;
-            float stripLeft = DesktopBar.LeftEdgeWorld(_strip);
-            float stripTop = DesktopBar.TopEdgeWorld(_strip);
+            float stripLeft = WorldEdge.Left(_strip);
+            float stripTop = WorldEdge.Top(_strip);
 
             _rowRoot.localScale = Vector3.one / scale;
             _rowRoot.anchoredPosition = new Vector2(
@@ -705,10 +712,53 @@ namespace UwUTerm.Ui
                 -(_barHeight - height) * 0.5f);
         }
 
+        /// <summary>
+        /// The text object the user name is drawn by. <c>UserNameBar</c> names it, so that is what
+        /// is asked rather than the object we happen to host - a name drawn by a child of it is a
+        /// rect that would otherwise be measured and never sized.
+        /// </summary>
+        private TMP_Text UserLabel()
+        {
+            var widget = _user != null ? _user.GetComponent<UserNameBar>() : null;
+            if (widget != null && widget.nameUser != null) return widget.nameUser;
+
+            return _user != null ? _user.GetComponent<TMP_Text>() : null;
+        }
+
+        /// <summary>
+        /// Give the user name the width of the name in it.
+        ///
+        /// The game sizes that label through the layout group it was authored in, and inside our
+        /// root nothing does - so it keeps the width it had at the moment it was adopted, and a
+        /// longer name than that one is drawn cut off. The width is the text's own, measured
+        /// unconstrained: what the label needs, rather than what it is allowed.
+        ///
+        /// Measured when the name changes rather than every frame. Asking how wide text would be
+        /// is the same work as laying it out, and the name changes about as often as the player
+        /// does.
+        /// </summary>
+        private void FitUserName()
+        {
+            TMP_Text label = UserLabel();
+            if (label == null || label.text == _userName) return;
+
+            _userName = label.text;
+
+            float width = label.GetPreferredValues(_userName, Mathf.Infinity, Mathf.Infinity).x;
+            RectTransform rect = label.rectTransform;
+            rect.sizeDelta = new Vector2(width, rect.sizeDelta.y);
+
+            // The slot is given to the object we host, which is the label itself here. Were the
+            // game ever to draw the name through a child, the host has to grow with it or the
+            // layout hands the name the room the old one needed.
+            if (rect != _user && _user != null)
+                _user.sizeDelta = new Vector2(width, _user.sizeDelta.y);
+        }
+
         private TMP_FontAsset Font()
         {
-            var text = _user != null ? _user.GetComponent<TMP_Text>() : null;
-            return text != null ? text.font : null;
+            TMP_Text label = UserLabel();
+            return label != null ? label.font : null;
         }
 
         private static void Grow(ref float[] widths, ref Slot[] slots, int needed)

@@ -17,7 +17,7 @@ namespace UwUTerm.Screen
         private const string Extra = ":@-./_~";
 
         internal static bool IsWord(int rune) =>
-            rune < 0x110000 && rune >= 0 &&
+            rune is < 0x110000 and >= 0 &&
             (char.IsLetterOrDigit((char)(rune > 0xFFFF ? 'a' : rune)) ||
              (rune <= 0xFFFF && Extra.IndexOf((char)rune) >= 0));
 

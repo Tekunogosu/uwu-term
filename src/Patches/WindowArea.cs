@@ -50,11 +50,42 @@ namespace UwUTerm.Patches
             harmony.Patch(target, prefix: new HarmonyMethod(
                 typeof(WindowArea).GetMethod(nameof(OnMaximize),
                     System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)));
+
+            var opened = AccessTools.Method(typeof(uDialog), "Start");
+            if (opened != null)
+                harmony.Patch(opened, postfix: new HarmonyMethod(
+                    typeof(WindowArea).GetMethod(nameof(SayWhereItOpened),
+                        System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)));
+        }
+
+        /// <summary>
+        /// Where a window came up, and what it came up inside.
+        ///
+        /// A window opening off the top of the screen is a position in some rect, and which rect
+        /// is the part that cannot be worked out from here - a dialog is parented to whatever the
+        /// call that made it passed in. So the parent is named along with its size, and both can
+        /// be held against a bar that changed.
+        /// </summary>
+        private static void SayWhereItOpened(uDialog __instance)
+        {
+            if (!UwUTermPlugin.ScreenDebug.Value || __instance == null) return;
+
+            RectTransform rect = __instance.RectTransform;
+            var parent = rect != null ? rect.parent as RectTransform : null;
+            if (rect == null || parent == null) return;
+
+            UwUTermPlugin.Log.LogInfo(
+                $"window opened: '{__instance.name}' {rect.rect.width:F0}x{rect.rect.height:F0} " +
+                $"at ({rect.anchoredPosition.x:F0},{rect.anchoredPosition.y:F0}) " +
+                $"anchors ({rect.anchorMin.x:F2},{rect.anchorMin.y:F2})-" +
+                $"({rect.anchorMax.x:F2},{rect.anchorMax.y:F2}) pivot ({rect.pivot.x:F2},{rect.pivot.y:F2}) " +
+                $"- drawn y {DesktopBar.BottomEdgeWorld(rect):F0}..{DesktopBar.TopEdgeWorld(rect):F0} " +
+                $"in '{parent.name}' {parent.rect.width:F0}x{parent.rect.height:F0}");
         }
 
         private static bool OnMaximize(uDialog __instance)
         {
-            if (!DesktopBar.Active) return true;   // the game's own geometry still fits
+            if (!DesktopArea.Claimed) return true;   // the game's own geometry still fits
 
             RectTransform rect = __instance.RectTransform;
             RectTransform parent = rect != null ? rect.parent as RectTransform : null;
@@ -87,15 +118,43 @@ namespace UwUTerm.Patches
         /// </summary>
         internal static Rect Area(Rect desktop)
         {
-            float inset = DesktopBar.TopInset;
+            float inset = DesktopArea.TopInset;
             float width = desktop.width * 0.99f;
 
-            return new Rect(
+            var area = new Rect(
                 desktop.center.x - width / 2f,
                 desktop.yMin,
                 width,
                 desktop.height - inset);
+
+            Report(desktop, inset, area);
+            return area;
         }
+
+        /// <summary>
+        /// What a maximised window, a snapped window and the snapping ghost all land on.
+        ///
+        /// Three things read this and one of them being wrong looks like three separate faults,
+        /// so it says once - whenever the answer changes - what it was given and what it made of
+        /// it. A window that fills the width and not the height is an inset the size of the
+        /// desktop, and that is visible here and nowhere else.
+        /// </summary>
+        private static void Report(Rect desktop, float inset, Rect area)
+        {
+            if (!UwUTermPlugin.ScreenDebug.Value) return;
+
+            string now = $"window area: desktop {desktop.width:F0}x{desktop.height:F0} " +
+                         $"(y {desktop.yMin:F0}..{desktop.yMax:F0}), bar takes {inset:F0} -> " +
+                         $"{area.width:F0}x{area.height:F0} centred on " +
+                         $"({area.center.x:F0},{area.center.y:F0})";
+
+            if (now == _reported) return;
+
+            _reported = now;
+            UwUTermPlugin.Log.LogInfo(now);
+        }
+
+        private static string _reported = "";
 
         private static void Place(uDialog dialog, RectTransform parent, Vector2 size, Vector2 centre)
         {

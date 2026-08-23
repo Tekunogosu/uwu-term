@@ -118,24 +118,31 @@ namespace UwUTerm.Screen
         {
             uint r = (uint)rune;
 
-            if (r < 32) return 0;
-            if (r < 127) return 1;
-            if (r >= 0x7f && r <= 0xa0) return 0;
+            switch (r)
+            {
+                case < 32:
+                    return 0;
+                case < 127:
+                    return 1;
+                case >= 0x7f and <= 0xa0:
+                    return 0;
+            }
+
             if (InTable(r, Combining)) return 0;
 
             bool wide =
                 r >= 0x1100 &&
                 (r <= 0x115f ||                          // Hangul Jamo initial consonants
                  r == 0x2329 || r == 0x232a ||
-                 (r >= 0x2e80 && r <= 0xa4cf && r != 0x303f) ||   // CJK through Yi
-                 (r >= 0xac00 && r <= 0xd7a3) ||         // Hangul syllables
-                 (r >= 0xf900 && r <= 0xfaff) ||         // CJK compatibility ideographs
-                 (r >= 0xfe10 && r <= 0xfe19) ||         // vertical forms
-                 (r >= 0xfe30 && r <= 0xfe6f) ||         // CJK compatibility forms
-                 (r >= 0xff00 && r <= 0xff60) ||         // fullwidth forms
-                 (r >= 0xffe0 && r <= 0xffe6) ||
-                 (r >= 0x20000 && r <= 0x2fffd) ||
-                 (r >= 0x30000 && r <= 0x3fffd));
+                 (r is >= 0x2e80 and <= 0xa4cf && r != 0x303f) ||   // CJK through Yi
+                 r is >= 0xac00 and <= 0xd7a3 ||         // Hangul syllables
+                 r is >= 0xf900 and <= 0xfaff ||         // CJK compatibility ideographs
+                 r is >= 0xfe10 and <= 0xfe19 ||         // vertical forms
+                 r is >= 0xfe30 and <= 0xfe6f ||         // CJK compatibility forms
+                 r is >= 0xff00 and <= 0xff60 ||         // fullwidth forms
+                 r is >= 0xffe0 and <= 0xffe6 ||
+                 r is >= 0x20000 and <= 0x2fffd ||
+                 r is >= 0x30000 and <= 0x3fffd);
 
             return wide ? 2 : 1;
         }

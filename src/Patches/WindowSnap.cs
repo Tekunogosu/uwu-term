@@ -462,7 +462,7 @@ namespace UwUTerm.Patches
         /// </summary>
         private static Rect WorkArea(Rect area)
         {
-            if (Ui.DesktopBar.Active) return WindowArea.Area(area);
+            if (Ui.DesktopArea.Claimed) return WindowArea.Area(area);
 
             float w = area.width * WorkAreaX;
             float h = area.height * WorkAreaY;

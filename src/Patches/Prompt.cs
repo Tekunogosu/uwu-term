@@ -74,6 +74,18 @@ namespace UwUTerm.Patches
             Terminal terminal = __instance.GetComponentInParent<Terminal>();
             bool remote = terminal != null && terminal.isRemoteConnection;
 
+            LastRaw[__instance] = rawText;
+
+            // The prompt left as the game wrote it, and everything else about the terminal
+            // still ours. What was captured above is what the rest of the mod reads to know
+            // where a line begins, so recording it here is what keeps input handling, history
+            // and completion working against the game's own prompt.
+            if (!UwUTermPlugin.CustomPrompt.Value)
+            {
+                LastRendered[__instance] = rawText;
+                return;
+            }
+
             string template = UwUTermPlugin.PromptTemplate.Value;
             if (remote && !string.IsNullOrEmpty(UwUTermPlugin.PromptTemplateRemote.Value))
                 template = UwUTermPlugin.PromptTemplateRemote.Value;
@@ -82,7 +94,6 @@ namespace UwUTerm.Patches
             // whole prompt, so trailing space is {sp}'s job. Appending both gave two.
             string rendered = Render(template, m, terminal, remote);
             LastRendered[__instance] = rendered;
-            LastRaw[__instance] = rawText;
             rawText = rendered;
         }
 

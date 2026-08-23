@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+using TMPro;
 using UI.Dialogs;
 using UnityEngine;
 using UnityEngine.UI;
@@ -28,7 +30,15 @@ namespace UwUTerm.Ui
         private const string UserName = "UserNameDesktop";
 
         /// <summary>Between the start menu button and the user name beside it.</summary>
-        private const float MenuGap = 20f;
+        private const float MenuGap = 10f;
+
+        /// <summary>How narrow a task button is allowed to get. The game caps how many
+        /// windows can be open, so the strip runs out of room long before this does; it is
+        /// here so a bar squeezed to nothing cannot produce zero-width buttons.</summary>
+        private const float MinTaskWidth = 24f;
+
+        /// <summary>How often the right-hand items are looked up again, in frames.</summary>
+        private const int RegatherEvery = 15;
 
         /// <summary>Room either side of the taskbar so its buttons never touch what is beside
         /// them. The gap before the window list is twice this, since that is the one that
@@ -63,10 +73,37 @@ namespace UwUTerm.Ui
         private TextAnchor _taskBarAlignment;
         private int _taskBarPadLeft;
         private bool _taskBarExpand;
+        private bool _taskBarControlWidth;
+        private Vector2 _taskBarCell;
+
+        /// <summary>Whatever sizes and places the task buttons. Which kind it is decides how a
+        /// width is handed to a button, so it is asked for by the base every layout group
+        /// shares rather than by the one kind that was expected.</summary>
+        private LayoutGroup _taskLayout;
+
+        /// <summary>The bar-level items on the right, and when they were last looked up.</summary>
+        private readonly List<RectTransform> _items = new List<RectTransform>();
+        private int _gathered = -RegatherEvery;
+
+        /// <summary>Where the right-hand furniture started when the strip was last held clear of
+        /// it, in the bar's own space.</summary>
+        private float _widgetsEdge;
+
+        /// <summary>The same edge in world space, for the watchdog - what is drawn is settled
+        /// there, and a disagreement between the two spaces is itself the answer.</summary>
+        private float _widgetsWorld;
+
+        /// <summary>The width a task button is built at, read off the templates it is cloned
+        /// from. 0 when there are none to read, which just means no upper bound: the buttons
+        /// then always share the strip out between them.</summary>
+        private float _taskNatural;
+        private float _taskEach;
 
         internal static void Tick()
         {
-            bool wanted = UwUTermPlugin.FeatureDesktop.Value;
+            // Our own bar and the rearrangement of the game's cannot both have the furniture.
+            bool wanted = UwUTermPlugin.FeatureDesktop.Value && !global::UwUTerm.Ui.TopBar.Owns
+                          && !UwUTermPlugin.OwnTopBar.Value;
 
             if (!wanted)
             {
@@ -74,7 +111,16 @@ namespace UwUTerm.Ui
                 return;
             }
 
-            if (_applied != null) { _applied.KeepTaskBarClear(); return; }
+            if (_applied != null)
+            {
+                _applied.KeepTaskBarClear();
+
+                // Only for the game's own bar. Ours answers the same key for itself.
+                if (UwUTermPlugin.DumpBar.Value.IsDown())
+                    TopBarReport.Dissect(_applied._top, _applied._taskBar, asked: true);
+
+                return;
+            }
 
             var bar = new DesktopBar();
             if (bar.Apply()) _applied = bar;
@@ -103,6 +149,9 @@ namespace UwUTerm.Ui
             var widget = _user != null ? _user.GetComponent<UserNameBar>() : null;
             _userIcon = widget != null && widget.iconImg != null ? widget.iconImg.rectTransform : null;
 
+            _taskLayout = _taskBar.GetComponent<LayoutGroup>();
+            MeasureTaskButton(taskBar);
+
             Remember();
             MoveUserNameToLeft();
             MoveClockToWidgets();
@@ -111,7 +160,9 @@ namespace UwUTerm.Ui
             ReclaimBottomStrip();
 
             Report();
-            UwUTermPlugin.Log.LogInfo("desktop: bars merged into one along the top");
+            UwUTermPlugin.Log.LogInfo(
+                "desktop: bars merged into one along the top, task buttons laid out by " +
+                (_taskLayout != null ? _taskLayout.GetType().Name : "nothing"));
             return true;
         }
 
@@ -199,8 +250,7 @@ namespace UwUTerm.Ui
             // them in the middle of the desktop. In a strip that starts after the menu button
             // and stops before the widgets, centred leaves a gap on the left and packs the
             // buttons somewhere arbitrary. They should start where the strip starts.
-            var layout = _taskBar.GetComponent<HorizontalLayoutGroup>();
-            if (layout != null) layout.childAlignment = TextAnchor.MiddleLeft;
+            if (_taskLayout != null) _taskLayout.childAlignment = TextAnchor.MiddleLeft;
 
             KeepTaskBarClear();
         }
@@ -225,7 +275,10 @@ namespace UwUTerm.Ui
             if (menu != null) left = RightEdgeIn(menu, _top) - bar.xMin + Gutter;
             if (_user != null && _user.parent == _top)
                 left = Mathf.Max(left, RightEdgeIn(_user, _top) - bar.xMin + Gutter * 2f);
-            if (_widgets != null) right = bar.xMax - LeftEdgeIn(_widgets, _top) + Gutter;
+            float widgets = _widgets != null ? WidgetsEdge() : bar.xMax;
+            if (_widgets != null) right = bar.xMax - widgets + Gutter;
+
+            _widgetsEdge = widgets;
 
             var min = new Vector2(left, -bar.height);
             var max = new Vector2(-right, 0f);
@@ -236,12 +289,238 @@ namespace UwUTerm.Ui
             // Re-asserted rather than set once: the taskbar rebuilds its buttons whenever a
             // window opens, closes or changes state, and the theme being applied rebuilds them
             // too, so anything that resets the group would otherwise win a frame later.
-            var layout = _taskBar.GetComponent<HorizontalLayoutGroup>();
-            if (layout == null) return;
+            if (_taskLayout == null) return;
 
-            if (layout.childAlignment != TextAnchor.MiddleLeft) layout.childAlignment = TextAnchor.MiddleLeft;
-            if (layout.padding.left != 0) layout.padding.left = 0;
-            if (layout.childForceExpandWidth) layout.childForceExpandWidth = false;
+            if (_taskLayout.childAlignment != TextAnchor.MiddleLeft)
+                _taskLayout.childAlignment = TextAnchor.MiddleLeft;
+            if (_taskLayout.padding.left != 0) _taskLayout.padding.left = 0;
+            if (_taskLayout is HorizontalOrVerticalLayoutGroup line && line.childForceExpandWidth)
+                line.childForceExpandWidth = false;
+
+            FitTaskButtons();
+        }
+
+        /// <summary>
+        /// Share the strip out between the task buttons so the row ends where the strip does.
+        ///
+        /// A horizontal layout group lays its children out at the width they ask for and runs
+        /// past its own rect once they no longer fit, which is what puts the last window's
+        /// button over the clock and the notification icons. Asking for a narrower button
+        /// instead is what makes the row fit: every button is given the same width, the strip
+        /// divided by how many there are, and keeps its built width while there is room for
+        /// it.
+        ///
+        /// The buttons are destroyed and re-instantiated on every rebuild, so this is a
+        /// per-frame pass over whatever is there now rather than something applied once.
+        /// </summary>
+        private void FitTaskButtons()
+        {
+            int count = 0;
+            for (int i = 0; i < _taskBar.childCount; i++)
+                if (IsTaskButton(_taskBar.GetChild(i))) count++;
+
+            if (count == 0) return;
+
+            float room = _taskBar.rect.width - _taskLayout.padding.left - _taskLayout.padding.right
+                       - Spacing() * (count - 1);
+            float each = room / count;
+            if (_taskNatural > 0f) each = Mathf.Min(each, _taskNatural);
+            each = Mathf.Max(each, MinTaskWidth);
+
+            if (UwUTermPlugin.ScreenDebug.Value && !Mathf.Approximately(_taskEach, each))
+                UwUTermPlugin.Log.LogInfo(
+                    $"desktop: {count} task buttons at {each:F0}px in {room:F0}px " +
+                    $"(built at {_taskNatural:F0}px)");
+            _taskEach = each;
+
+            // A grid hands every cell the same size, so there is one width to set and no
+            // per-button work at all.
+            if (_taskLayout is GridLayoutGroup grid)
+            {
+                if (!Mathf.Approximately(grid.cellSize.x, each))
+                    grid.cellSize = new Vector2(each, grid.cellSize.y);
+
+                for (int i = 0; i < _taskBar.childCount; i++)
+                    FitTaskLabel(_taskBar.GetChild(i).GetComponent<uDialog_TaskBar_Task>());
+
+                return;
+            }
+
+            // A line of buttons is sized one at a time, through the width each asks for - and
+            // only when the group is told to control it. Left off, a preferred width is read
+            // and ignored.
+            if (_taskLayout is not HorizontalOrVerticalLayoutGroup line)
+            {
+                SizeTaskButtons(each);
+                return;
+            }
+
+            if (!line.childControlWidth) line.childControlWidth = true;
+
+            TopBarReport.WhenChanged(_top, _taskBar);
+            TopBarReport.Watch(_top, _taskBar, _widgetsEdge, _widgetsWorld);
+
+            for (int i = 0; i < _taskBar.childCount; i++)
+            {
+                Transform child = _taskBar.GetChild(i);
+                if (!IsTaskButton(child)) continue;
+
+                FitTaskLabel(child.GetComponent<uDialog_TaskBar_Task>());
+
+                var element = child.GetComponent<LayoutElement>();
+                if (element == null) element = child.gameObject.AddComponent<LayoutElement>();
+
+                // Writing the same width back dirties the layout, so a rebuild would be
+                // queued every frame for a row that has not changed.
+                if (!Mathf.Approximately(element.preferredWidth, each)) element.preferredWidth = each;
+
+                // A fitter on the button sizes it from its own text, which is the one thing
+                // that can overrule the width the group hands down.
+                var fitter = child.GetComponent<ContentSizeFitter>();
+                if (fitter != null && fitter.horizontalFit != ContentSizeFitter.FitMode.Unconstrained)
+                    fitter.horizontalFit = ContentSizeFitter.FitMode.Unconstrained;
+            }
+        }
+
+        /// <summary>
+        /// Set the width on the buttons themselves.
+        ///
+        /// A preferred width is only read by Unity's own layout groups. Anything else placing
+        /// the buttons is told nothing by one, so the size is written where every group looks:
+        /// the button's own rect.
+        /// </summary>
+        private void SizeTaskButtons(float each)
+        {
+            for (int i = 0; i < _taskBar.childCount; i++)
+            {
+                Transform child = _taskBar.GetChild(i);
+                if (!IsTaskButton(child)) continue;
+
+                FitTaskLabel(child.GetComponent<uDialog_TaskBar_Task>());
+
+                if (child is not RectTransform rect || Mathf.Approximately(rect.rect.width, each))
+                    continue;
+
+                rect.SetSizeWithCurrentAnchors(RectTransform.Axis.Horizontal, each);
+            }
+        }
+
+        /// <summary>The gap the group leaves between two buttons. Every kind of group has one;
+        /// they disagree about whether it has a second dimension.</summary>
+        private float Spacing() =>
+            _taskLayout switch
+            {
+                HorizontalOrVerticalLayoutGroup line => line.spacing,
+                GridLayoutGroup grid => grid.spacing.x,
+                _ => 0f,
+            };
+
+        /// <summary>
+        /// Keep a window's name inside the button that carries it: a name too long for the
+        /// room the button now has is cut short rather than drawn past its edge and over the
+        /// button beside it.
+        ///
+        /// The label follows the button on its own - it is either sized by the button's own
+        /// layout or anchored to its edges - so the width is not set here. What it does with
+        /// text that no longer fits is the part that has to be said.
+        /// </summary>
+        private static void FitTaskLabel(uDialog_TaskBar_Task task)
+        {
+            TMP_Text label = task != null ? task.GO_TextComponent : null;
+            if (label == null) return;
+
+            if (label.enableWordWrapping) label.enableWordWrapping = false;
+            if (label.overflowMode != TextOverflowModes.Ellipsis)
+                label.overflowMode = TextOverflowModes.Ellipsis;
+        }
+
+        /// <summary>A live button rather than one of the templates they are cloned from - those
+        /// are children too, kept inactive.</summary>
+        internal static bool IsTaskButton(Transform child)
+        {
+            if (child == null || !child.gameObject.activeSelf) return false;
+
+            var task = child.GetComponent<uDialog_TaskBar_Task>();
+            return task != null && !task.IsTemplate;
+        }
+
+        /// <summary>
+        /// The width a button is built at, before anything is rearranged.
+        ///
+        /// Taken from the templates buttons are cloned from: a template is never laid out - a
+        /// group skips inactive children - so it keeps the size the prefab was authored at,
+        /// which is the size every button is instantiated with. A grid answers for itself,
+        /// since its cell is what the button ends up as whatever it was built at.
+        /// </summary>
+        private void MeasureTaskButton(uDialog_TaskBar taskBar)
+        {
+            _taskNatural = 0f;
+            foreach (uDialog_TaskBar_Task template in new[]
+                     {
+                         taskBar.TaskTemplate_ActiveTask,
+                         taskBar.TaskTemplate_FocusedTask,
+                         taskBar.TaskTemplate_InactiveTask,
+                     })
+            {
+                var rect = template != null ? template.transform as RectTransform : null;
+                if (rect != null) _taskNatural = Mathf.Max(_taskNatural, rect.rect.width);
+            }
+
+            // A grid overrules whatever the template was authored at - every button in one is
+            // the size of a cell, so the cell is the width they are built at.
+            if (_taskLayout is GridLayoutGroup cells && cells.cellSize.x > 1f)
+                _taskNatural = cells.cellSize.x;
+        }
+
+        /// <summary>
+        /// Where the right-hand furniture starts, taken from the items themselves rather than
+        /// from the group they hang under.
+        ///
+        /// A group's rect describes its contents only as well as its own layout makes it, and
+        /// nothing here can tell whether it does. Measuring the items removes the question: the
+        /// group's own children, and the children of any group among them, which is the row of
+        /// widgets as it is actually drawn.
+        ///
+        /// What hangs below them is left out. A widget's dropdown is several times the width of
+        /// the widget and opens under the bar, so counting it would pull the strip back across
+        /// the desktop for as long as somebody had a panel open.
+        /// </summary>
+        private float WidgetsEdge()
+        {
+            if (Time.frameCount - _gathered >= RegatherEvery) Gather();
+
+            float edge = LeftEdgeIn(_widgets, _top);
+            _widgetsWorld = LeftEdgeWorld(_widgets);
+            foreach (RectTransform item in _items)
+            {
+                if (item == null || !item.gameObject.activeInHierarchy) continue;
+
+                edge = Mathf.Min(edge, LeftEdgeIn(item, _top));
+                _widgetsWorld = Mathf.Min(_widgetsWorld, LeftEdgeWorld(item));
+            }
+
+            return edge;
+        }
+
+        /// <summary>The bar-level items on the right. Re-taken on a slow tick rather than every
+        /// frame: widgets come and go with what the machine is doing, and walking the group for
+        /// each one costs more than the answer is worth at that rate.</summary>
+        private void Gather()
+        {
+            _gathered = Time.frameCount;
+            _items.Clear();
+            if (_widgets == null) return;
+
+            for (int i = 0; i < _widgets.childCount; i++)
+            {
+                if (_widgets.GetChild(i) is not RectTransform child) continue;
+
+                _items.Add(child);
+                if (child.GetComponent<LayoutGroup>() == null) continue;
+
+                for (int j = 0; j < child.childCount; j++)
+                    if (child.GetChild(j) is RectTransform inner) _items.Add(inner);
+            }
         }
 
         /// <summary>
@@ -251,13 +530,39 @@ namespace UwUTerm.Ui
         /// adding half a width to it only finds the edge when the pivot happens to be centred.
         /// The corners are where the object actually is.
         /// </summary>
-        private static float RightEdgeIn(RectTransform child, RectTransform space)
+        internal static float RightEdgeIn(RectTransform child, RectTransform space)
         {
             child.GetWorldCorners(Corners);
             return space.InverseTransformPoint(Corners[2]).x;
         }
 
-        private static float LeftEdgeIn(RectTransform child, RectTransform space)
+        /// <summary>An edge in world space. On an overlay canvas that is the pixel it is drawn
+        /// at, which is the one measurement a scale factor cannot disagree with.</summary>
+        internal static float LeftEdgeWorld(RectTransform rect)
+        {
+            rect.GetWorldCorners(Corners);
+            return Corners[0].x;
+        }
+
+        internal static float BottomEdgeWorld(RectTransform rect)
+        {
+            rect.GetWorldCorners(Corners);
+            return Corners[0].y;
+        }
+
+        internal static float TopEdgeWorld(RectTransform rect)
+        {
+            rect.GetWorldCorners(Corners);
+            return Corners[1].y;
+        }
+
+        internal static float RightEdgeWorld(RectTransform rect)
+        {
+            rect.GetWorldCorners(Corners);
+            return Corners[2].x;
+        }
+
+        internal static float LeftEdgeIn(RectTransform child, RectTransform space)
         {
             child.GetWorldCorners(Corners);
             return space.InverseTransformPoint(Corners[0]).x;
@@ -321,10 +626,13 @@ namespace UwUTerm.Ui
             var image = _taskBar.GetComponent<Image>();
             _taskBarImage = image != null && image.enabled;
 
-            var layout = _taskBar.GetComponent<HorizontalLayoutGroup>();
-            _taskBarAlignment = layout != null ? layout.childAlignment : TextAnchor.MiddleCenter;
-            _taskBarPadLeft = layout != null ? layout.padding.left : 0;
-            _taskBarExpand = layout != null && layout.childForceExpandWidth;
+            var line = _taskLayout as HorizontalOrVerticalLayoutGroup;
+            var cells = _taskLayout as GridLayoutGroup;
+            _taskBarAlignment = _taskLayout != null ? _taskLayout.childAlignment : TextAnchor.MiddleCenter;
+            _taskBarPadLeft = _taskLayout != null ? _taskLayout.padding.left : 0;
+            _taskBarExpand = line != null && line.childForceExpandWidth;
+            _taskBarControlWidth = line != null && line.childControlWidth;
+            _taskBarCell = cells != null ? cells.cellSize : Vector2.zero;
 
             if (_calendar != null)
             {
@@ -383,13 +691,20 @@ namespace UwUTerm.Ui
                 var image = _taskBar.GetComponent<Image>();
                 if (image != null) image.enabled = _taskBarImage;
 
-                var layout = _taskBar.GetComponent<HorizontalLayoutGroup>();
-                if (layout != null)
+                if (_taskLayout != null)
                 {
-                    layout.childAlignment = _taskBarAlignment;
-                    layout.padding.left = _taskBarPadLeft;
-                    layout.childForceExpandWidth = _taskBarExpand;
+                    _taskLayout.childAlignment = _taskBarAlignment;
+                    _taskLayout.padding.left = _taskBarPadLeft;
                 }
+
+                if (_taskLayout is HorizontalOrVerticalLayoutGroup line)
+                {
+                    line.childForceExpandWidth = _taskBarExpand;
+                    line.childControlWidth = _taskBarControlWidth;
+                }
+
+                if (_taskLayout is GridLayoutGroup cells && _taskBarCell.x > 0f)
+                    cells.cellSize = _taskBarCell;
             }
 
             if (_calendar != null)
@@ -408,27 +723,9 @@ namespace UwUTerm.Ui
             UwUTermPlugin.Log.LogInfo("desktop: bars put back the way the game had them");
         }
 
-        /// <summary>What the taskbar strip actually came out as, and what its layout group is
-        /// doing with it. Logged once, because two attempts at this were guesses.</summary>
-        private void Report()
-        {
-            if (!UwUTermPlugin.ScreenDebug.Value) return;
-
-            var layout = _taskBar.GetComponent<HorizontalLayoutGroup>();
-            Rect bar = _top.rect;
-
-            UwUTermPlugin.Log.LogInfo(
-                $"desktop: bar {bar.width:F0}x{bar.height:F0} " +
-                $"taskbar offsets L{_taskBar.offsetMin.x:F0} R{_taskBar.offsetMax.x:F0} " +
-                $"rect {_taskBar.rect.width:F0}x{_taskBar.rect.height:F0}");
-
-            if (layout != null)
-                UwUTermPlugin.Log.LogInfo(
-                    $"desktop: layout align={layout.childAlignment} spacing={layout.spacing} " +
-                    $"pad L{layout.padding.left} R{layout.padding.right} " +
-                    $"expandW={layout.childForceExpandWidth} controlW={layout.childControlWidth} " +
-                    $"reverse={layout.reverseArrangement}");
-        }
+        /// <summary>What the bar came out as, once, at the moment it is rearranged. The same
+        /// description is written again whenever the row of task buttons changes shape.</summary>
+        private void Report() => TopBarReport.Dissect(_top, _taskBar);
 
         private static RectTransform Find(Transform parent, string name)
         {

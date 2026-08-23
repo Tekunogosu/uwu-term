@@ -5,7 +5,8 @@ using UnityEngine;
 namespace UwUTerm.Ui
 {
     /// <summary>
-    /// Write the desktop's UI hierarchy to the log once.
+    /// Write the desktop's UI hierarchy to the log once, deep enough to reach the widgets -
+    /// a limit that stops above them describes a bar whose contents are a guess.
     ///
     /// Anchors, sizes and which objects carry which components are decided in the scene, and
     /// none of that is visible in decompiled code. Rearranging the bars means knowing what is
@@ -32,7 +33,7 @@ namespace UwUTerm.Ui
 
             var sb = new StringBuilder(4096);
             sb.Append("desktop: hierarchy under ").Append(root.name).Append('\n');
-            Describe(root, sb, 0, 4);
+            Describe(root, sb, 0, 6);
 
             UwUTermPlugin.Log.LogInfo(sb.ToString());
         }

@@ -39,6 +39,23 @@ namespace UwUTerm.Nvim
         private readonly Dictionary<int, Action<object, object>> _waiting =
             new Dictionary<int, Action<object, object>>();
 
+        /// <summary>What each outstanding request asked for, so an answer can be named.</summary>
+        private readonly Dictionary<int, string> _asked = new Dictionary<int, string>();
+
+        /// <summary>
+        /// Raised when neovim refuses a call, whether or not anybody was waiting for the answer.
+        ///
+        /// Most calls here are sent without a handler - a name, a filetype, a line of text - so
+        /// their answers were being read and dropped, error and all. A refusal that nobody hears
+        /// looks exactly like a call that never had any effect, which is a hard thing to tell
+        /// apart from a bug of one's own. Raised on the reading thread.
+        /// </summary>
+        internal event Action<string, object> Failed;
+
+        /// <summary>Every call as it goes out, when somebody is listening. Off by default: this
+        /// is one line per keystroke and several per redraw.</summary>
+        internal event Action<string, object[]> Sent;
+
         // Filled by the reading thread, drained by the main one.
         private readonly Queue<Notification> _arrived = new Queue<Notification>();
 
@@ -225,13 +242,16 @@ namespace UwUTerm.Nvim
         {
             int id = System.Threading.Interlocked.Increment(ref _nextId);
             if (answered != null) lock (_waiting) _waiting[id] = answered;
+            lock (_asked) _asked[id] = method;
 
+            Sent?.Invoke(method, arguments);
             Send(new object[] { (long)RequestKind, (long)id, method, arguments ?? new object[0] });
         }
 
         /// <summary>Say something that expects no answer.</summary>
         internal void Notify(string method, object[] arguments)
         {
+            Sent?.Invoke(method, arguments);
             Send(new object[] { (long)NotificationKind, method, arguments ?? new object[0] });
         }
 
@@ -321,9 +341,18 @@ namespace UwUTerm.Nvim
                 {
                     int id = (int)Convert.ToInt64(parts[1]);
                     Action<object, object> answered = null;
+                    string method = null;
 
                     lock (_waiting)
                         if (_waiting.TryGetValue(id, out answered)) _waiting.Remove(id);
+
+                    lock (_asked)
+                        if (_asked.TryGetValue(id, out method)) _asked.Remove(id);
+
+                    // Said whether or not anybody was waiting. A call sent without a handler is
+                    // still a call that can be refused, and until now those refusals went into
+                    // the same silence as the answers nobody wanted.
+                    if (parts[2] != null) Failed?.Invoke(method ?? "a call", parts[2]);
 
                     answered?.Invoke(parts[2], parts[3]);
                     return;

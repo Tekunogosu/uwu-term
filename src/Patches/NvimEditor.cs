@@ -27,6 +27,15 @@ namespace UwUTerm.Patches
         private static readonly Dictionary<Notepad, NvimView> Editors = new Dictionary<Notepad, NvimView>();
         private static readonly List<Notepad> Dead = new List<Notepad>();
 
+        /// <summary>What opens the game's right-click menu in each editor window - only the
+        /// parts that were offering one, since they are the only ones with anything to put
+        /// back.</summary>
+        private static readonly Dictionary<Notepad, ClipboardInteractableContextual[]> Menus =
+            new Dictionary<Notepad, ClipboardInteractableContextual[]>();
+
+        private static readonly List<ClipboardInteractableContextual> Found =
+            new List<ClipboardInteractableContextual>();
+
         /// <summary>How long to keep asking for a session that has just gone, before settling
         /// for an editor of our own.</summary>
         private const float RejoinGrace = 15f;
@@ -79,9 +88,12 @@ namespace UwUTerm.Patches
                 if (pair.Key == null || !pair.Value.Running) { Dead.Add(pair.Key); continue; }
 
                 Hide(pair.Key.listAdapter, true);
+                Menu(pair.Key, pair.Value.MouseWanted);
 
                 NotepadListAdapter adapter = pair.Key.listAdapter;
                 pair.Value.Tick(adapter != null && adapter.isFocus);
+
+                WatchSize(pair.Key, pair.Value);
             }
 
             foreach (Notepad closed in Dead) Close(closed);
@@ -130,17 +142,52 @@ namespace UwUTerm.Patches
                 };
 
                 Editors[window] = view;
+                Menus[window] = MenuHolders(window);
 
                 Notepad following = window;
                 view.BufferEntered += buffer => Retarget(following, view.PathFor(buffer));
 
-                view.Open(FileName(window), window.GetSource(), UwUTermPlugin.NvimFiletype.Value,
+                // The rows are read directly rather than through Notepad.GetSource, which by
+                // now answers with neovim's own buffer - empty, this being the moment it opened.
+                // A window can already hold code before we ever see it: CodeEditor.exe -code
+                // takes a system binary's source straight out of the game's own cache and sets
+                // it the moment the window exists, without the server round trip a file goes
+                // through, so it is in the rows before the first tick that could adopt it.
+                view.Open(FileName(window), adapter.GetText(), UwUTermPlugin.NvimFiletype.Value,
                           window.rutaArchivo);
                 Report(viewport, view);
 
                 UwUTermPlugin.Log.LogInfo("nvim: editing in neovim");
             }
         }
+
+        /// <summary>
+        /// Whether the editor is following the window it lives in.
+        ///
+        /// The view sizes itself from the viewport it was given, so a window that grows while
+        /// the editor does not means one of two things: the viewport is not growing either, or
+        /// it is and the view is not acting on it. Those need telling apart, and the only place
+        /// both numbers exist at once is here. Written when the window's own size changes, which
+        /// is the moment the two should agree and the moment they visibly do not.
+        /// </summary>
+        private static void WatchSize(Notepad window, NvimView view)
+        {
+            if (!UwUTermPlugin.ScreenDebug.Value) return;
+
+            var dialog = window.GetComponentInParent<uDialog>();
+            RectTransform rect = dialog != null ? dialog.RectTransform : null;
+            if (rect == null) return;
+
+            Vector2 size = rect.rect.size;
+            if (Sizes.TryGetValue(window, out Vector2 was) &&
+                Mathf.Abs(was.x - size.x) < 1f && Mathf.Abs(was.y - size.y) < 1f) return;
+
+            Sizes[window] = size;
+            UwUTermPlugin.Log.LogInfo(
+                $"nvim: '{window.name}' window {size.x:F0}x{size.y:F0} - {view.Describe()}");
+        }
+
+        private static readonly Dictionary<Notepad, Vector2> Sizes = new Dictionary<Notepad, Vector2>();
 
         /// <summary>
         /// Everything drawing text inside the editor window, and how opaque it is.
@@ -153,7 +200,12 @@ namespace UwUTerm.Patches
         {
             if (!UwUTermPlugin.ScreenDebug.Value) return;
 
-            Transform root = viewport.parent != null ? viewport.parent : viewport;
+            // From the window rather than from the viewport's parent: what is drawn over the
+            // editor need not be a sibling of it, and a scrollbar left behind by the window's
+            // own machinery is exactly the sort of thing that sits somewhere else entirely.
+            var dialog = viewport.GetComponentInParent<uDialog>();
+            Transform root = dialog != null ? dialog.transform
+                : viewport.parent != null ? viewport.parent : viewport;
 
             // Every graphic, not just the text ones - a caret and a selection are images, and
             // listing only text is how they stayed invisible in a report about what is visible.
@@ -178,6 +230,9 @@ namespace UwUTerm.Patches
                 if (window.listAdapter != null) Hide(window.listAdapter, false);
             }
 
+            Menu(window, false);
+            Menus.Remove(window);
+            Sizes.Remove(window);
             Editors.Remove(window);
         }
 
@@ -217,6 +272,65 @@ namespace UwUTerm.Patches
 
             float wanted = hidden ? 0f : 1f;
             if (!Mathf.Approximately(group.alpha, wanted)) group.alpha = wanted;
+        }
+
+        /// <summary>
+        /// Whether the game opens its own menu on a right click in this window.
+        ///
+        /// Neovim draws a menu of its own once it has the mouse, and the game's opens over it
+        /// on the same click - two menus, one on top of the other, and only one of them
+        /// knowing what is selected. Which is the right one to keep is exactly what 'mouse'
+        /// answers: while neovim is not taking clicks the game's menu is the only one there
+        /// is, so it is put back rather than left off.
+        ///
+        /// The flag the window already has is what is turned off, so nothing else about the
+        /// click changes - the left button still dismisses an open menu.
+        /// </summary>
+        private static void Menu(Notepad window, bool suppressed)
+        {
+            if (window == null || !Menus.TryGetValue(window, out ClipboardInteractableContextual[] widgets))
+                return;
+
+            bool changed = false;
+            foreach (ClipboardInteractableContextual widget in widgets)
+            {
+                if (widget == null || widget.showMenu != suppressed) continue;
+
+                widget.showMenu = !suppressed;
+                changed = true;
+            }
+
+            if (changed && UwUTermPlugin.ScreenDebug.Value)
+                UwUTermPlugin.Log.LogInfo(
+                    $"nvim: the game's right-click menu is {(suppressed ? "off" : "back on")} " +
+                    $"in {widgets.Length} place(s)");
+        }
+
+        /// <summary>
+        /// The parts of a window that answer a right click with the game's menu.
+        ///
+        /// The one over the text is the one neovim is arguing with, and it names the list it
+        /// belongs to - so it can be picked out and everything else in the window keeps the
+        /// menu it had. Failing that the search widens to the base class every menu in a
+        /// window goes through, which is the class the flag itself lives on: a menu over the
+        /// text hidden along with the rest beats one drawn over neovim's.
+        /// </summary>
+        private static ClipboardInteractableContextual[] MenuHolders(Notepad window)
+        {
+            Found.Clear();
+
+            foreach (ClipboardNotepad widget in window.GetComponentsInChildren<ClipboardNotepad>(true))
+                if (widget.showMenu && widget.notepadListAdapter == window.listAdapter) Found.Add(widget);
+
+            if (Found.Count == 0)
+                foreach (ClipboardInteractableContextual widget in
+                         window.GetComponentsInChildren<ClipboardInteractableContextual>(true))
+                    if (widget.showMenu) Found.Add(widget);
+
+            if (Found.Count == 0)
+                UwUTermPlugin.Log.LogWarning("nvim: no context menu found in the editor window");
+
+            return Found.ToArray();
         }
 
         private static NvimView For(Notepad window) =>

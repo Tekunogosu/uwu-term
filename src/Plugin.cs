@@ -48,6 +48,7 @@ namespace UwUTerm
         internal static ConfigEntry<bool> HistoryIgnoreSpacePrefix;
         internal static ConfigEntry<bool> HistoryIgnoreDuplicates;
         internal static ConfigEntry<string> HistoryIgnorePattern;
+        internal static ConfigEntry<bool> CustomPrompt;
         internal static ConfigEntry<string> PromptTemplate;
         internal static ConfigEntry<string> PromptPalette;
         internal static ConfigEntry<string> PromptTemplateRemote;
@@ -61,6 +62,16 @@ namespace UwUTerm
         internal static ConfigEntry<string> NvimFiletype;
         internal static ConfigEntry<bool> NvimDownload;
         internal static ConfigEntry<float> BarSpacing;
+        internal static ConfigEntry<bool> OwnTopBar;
+        internal static ConfigEntry<float> BarScale;
+        internal static ConfigEntry<float> BarHeight;
+        internal static ConfigEntry<float> TaskWidth;
+        internal static ConfigEntry<float> MinTaskWidth;
+        internal static ConfigEntry<float> BarFontSize;
+        internal static ConfigEntry<float> BarGap;
+        internal static ConfigEntry<float> WidgetPadding;
+        internal static ConfigEntry<bool> BarTint;
+        internal static ConfigEntry<KeyboardShortcut> DumpBar;
         internal static ConfigEntry<bool> SkipDragFocus;
         internal static ConfigEntry<bool> SnapPreview;
         internal static ConfigEntry<bool> SnapTopMaximizes;
@@ -76,6 +87,7 @@ namespace UwUTerm
         internal static ConfigEntry<bool> DumpDesktop;
         internal static ConfigEntry<bool> ProbeHost;
         internal static ConfigEntry<bool> SnapDebug;
+        internal static ConfigEntry<bool> NvimDebug;
         internal static ConfigEntry<bool> DebugOutput;
 
         internal static ConfigEntry<bool> EnableSnapHotkeys;
@@ -129,6 +141,13 @@ namespace UwUTerm
                 "Separate from Terminal because it writes a file. That file is plain text and\n" +
                 "holds whatever you typed, in-game passwords included. IgnoreSpacePrefix and\n" +
                 "IgnorePattern under [History] can keep chosen commands out of it.");
+
+            CustomPrompt = Config.Bind("Features", "Prompt", true,
+                "Draw the prompt from the [Prompt] section instead of the game's own.\n" +
+                "\n" +
+                "Off leaves the prompt exactly as the game writes it and changes nothing else\n" +
+                "about the terminal - the screen, input handling, history and completion are\n" +
+                "all still ours.");
 
             FeatureMail = Config.Bind("Features", "Mail", true,
                 "Add a headers link to each message in the mail client.");
@@ -358,6 +377,54 @@ namespace UwUTerm
 
             // ---- desktop -----------------------------------------------------------------
 
+            OwnTopBar = Config.Bind("Desktop", "OwnTopBar", true,
+                "Draw the desktop's top bar ourselves instead of rearranging the game's.\n" +
+                "\n" +
+                "The game's bar sizes itself through layout groups and content fitters, which is\n" +
+                "why a row of window buttons could cover the widgets beside it however carefully\n" +
+                "it was measured from outside. Ours places everything in screen pixels, and\n" +
+                "builds a window's button once rather than rebuilding every button whenever any\n" +
+                "window is focused. Takes effect on restart.");
+
+            BarScale = Config.Bind("Desktop", "BarScale", 1f,
+                "How big the bar is drawn, where 1 is one pixel per pixel.\n" +
+                "\n" +
+                "The game's own UI-size setting is a reference resolution rather than a scale -\n" +
+                "its \"100%\" means 1920x1080 stretched to fit your screen, which on a wider one\n" +
+                "is not 1:1. This is a plain multiplier: 1 means the bar's numbers are pixels.\n" +
+                "The widgets it hosts keep following the game's setting, so they stay the size\n" +
+                "you are used to.");
+
+            BarTint = Config.Bind("Desktop", "BarTint", false,
+                "Paint each part of the bar a different colour.\n" +
+                "\n" +
+                "For when the log and the screen disagree about where something is: the menu\n" +
+                "button goes red, the user name green, the strip holding the window buttons a\n" +
+                "translucent blue, and the first window button yellow. A screenshot then says\n" +
+                "which object is which, without trusting any measurement to say it.");
+
+            BarGap = Config.Bind("Desktop", "BarGap", 10f,
+                "Pixels between the groups in our own bar - the menu button, the user name, the\n" +
+                "row of window buttons, the widgets and the clock. In pixels before BarScale.");
+
+            WidgetPadding = Config.Bind("Desktop", "WidgetPadding", 5f,
+                "Pixels of room around each widget, so they do not touch each other. In pixels\n" +
+                "before BarScale.");
+
+            BarHeight = Config.Bind("Desktop", "BarHeight", 40f,
+                "How tall the bar is, in pixels before BarScale.");
+
+            TaskWidth = Config.Bind("Desktop", "TaskWidth", 180f,
+                "How wide a window button is when the bar is not crowded, in pixels before\n" +
+                "BarScale. A crowded row shares the space out and every button is narrower.");
+
+            MinTaskWidth = Config.Bind("Desktop", "MinTaskWidth", 40f,
+                "How narrow a window button may be squeezed before the row is allowed to run\n" +
+                "past the widgets, in pixels before BarScale.");
+
+            BarFontSize = Config.Bind("Desktop", "BarFontSize", 15f,
+                "Size of the text on a window button, in pixels before BarScale.");
+
             BarSpacing = Config.Bind("Desktop", "BarSpacing", 12f,
                 "Pixels between the things in the top bar. The gap before the window list is\n" +
                 "twice this.");
@@ -418,6 +485,13 @@ namespace UwUTerm
                 "Log once what the game process can reach: its environment, which directories\n" +
                 "exist, and whether a child process can be started.");
 
+            NvimDebug = Config.Bind("Diagnostics", "NvimDebug", false,
+                "Log every call the editor makes to neovim. Noisy - a line per keystroke.\n" +
+                "\n" +
+                "What neovim refuses is logged either way: most calls are sent without waiting\n" +
+                "for an answer, so a refusal would otherwise be indistinguishable from a call\n" +
+                "that quietly did nothing.");
+
             SnapDebug = Config.Bind("Diagnostics", "SnapDebug", false,
                 "Log window drag and snap-zone decisions.");
 
@@ -444,6 +518,7 @@ namespace UwUTerm
             Register("screen", () => ScreenTakeover.Apply(_harmony));
             Register("screen-clipboard", () => ScreenClipboard.Apply(_harmony));
             Register("window-close", () => _harmony.PatchAll(typeof(WindowClose)));
+            Register("top-bar", () => TopBarTakeover.Apply(_harmony));
             BindHotkeys();
             PruneOrphanedSettings(Config, "settings");
             PruneOrphanedSettings(Hotkeys, "hotkeys");
@@ -567,6 +642,14 @@ namespace UwUTerm
                 new KeyboardShortcut(KeyCode.Alpha4, KeyCode.LeftControl, KeyCode.LeftAlt, KeyCode.LeftShift),
                 "Bottom right.");
 
+            DumpBar = Hotkeys.Bind("Diagnostics", "DumpBar",
+                new KeyboardShortcut(KeyCode.F9, KeyCode.LeftControl, KeyCode.LeftShift),
+                "Write the top bar's layout to the log, as it is at that moment.\n" +
+                "\n" +
+                "For a fault you can see and a measurement that says otherwise: pressing this\n" +
+                "while it is on screen records the state that is actually wrong, rather than\n" +
+                "whichever one the log happened to sample.");
+
             SearchScrollback = Hotkeys.Bind("Terminal", "SearchScrollback",
                 new KeyboardShortcut(KeyCode.F, KeyCode.LeftControl),
                 "Search the terminal scrollback. Press again for the next match.\n" +
@@ -603,6 +686,7 @@ namespace UwUTerm
             Ui.DesktopReport.Tick();
             HostProbe.Tick();
             Patches.NvimEditor.Tick();
+            Ui.TopBar.Tick();
             Ui.DesktopBar.Tick();
             PollConfigFile();
         }

@@ -1,0 +1,24 @@
+<!-- The bar's arithmetic, run without a game.
+
+     src/Bar holds no UnityEngine type for exactly this reason: whether a row of buttons fits
+     the space it was given is a property of numbers, and numbers can be checked here in a
+     second rather than by launching Grey Hack and looking at the screen.
+
+     Run with the dotnet run command named in CLAUDE.md. -->
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <AssemblyName>BarLayoutTests</AssemblyName>
+    <RootNamespace>UwUTerm.Bar.Tests</RootNamespace>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="../../src/Bar/**/*.cs" />
+    <Compile Include="Program.cs" />
+  </ItemGroup>
+
+</Project>

@@ -63,6 +63,10 @@ namespace UwUTerm.Ui
         /// than an editor of its own.</summary>
         internal bool Attached => _client is { Attached: true };
 
+        /// <summary>Whether neovim is taking the mouse, and so whether a click in this view is
+        /// the editor's rather than the game's.</summary>
+        internal bool MouseWanted => _ui != null && _ui.MouseWanted;
+
         /// <summary>
         /// The buffer as the window last saw it.
         ///
@@ -140,7 +144,77 @@ namespace UwUTerm.Ui
         {
             var client = new RpcClient();
             client.Ended += why => Ended?.Invoke(why);
+            Listen(client);
             return client;
+        }
+
+        /// <summary>
+        /// Say what neovim refuses, and optionally what it is asked.
+        ///
+        /// Almost every call here is sent without waiting for the answer, so a refused one used
+        /// to leave no trace at all - a filetype that never took and a filetype that was never
+        /// asked for looked identical from the game. Both arrive on the reading thread; the
+        /// logger is the only thing touched, so there is nothing here for the main thread to do.
+        /// </summary>
+        private static void Listen(RpcClient client)
+        {
+            client.Failed += (method, error) =>
+                UwUTermPlugin.Log.LogWarning($"nvim: {method} was refused - {Excuse(error)}");
+
+            if (!UwUTermPlugin.NvimDebug.Value) return;
+
+            client.Sent += (method, arguments) =>
+                UwUTermPlugin.Log.LogInfo($"nvim: -> {method}({Brief(arguments)})");
+        }
+
+        /// <summary>How long to let neovim settle before asking a second time, in frames.</summary>
+        private const int SettleFrames = 60;
+
+        private int _askAgainAt = -1;
+        private int _asking;
+
+        private void Ask()
+        {
+            const string lua =
+                "local b = ...\n" +
+                "local ok, hl = pcall(function() return vim.treesitter.highlighter.active[b] ~= nil end)\n" +
+                "return string.format('filetype=%s syntax=%s treesitter=%s name=%s lines=%d',\n" +
+                "  vim.bo[b].filetype == '' and '(none)' or vim.bo[b].filetype,\n" +
+                "  vim.b[b].current_syntax or '(none)',\n" +
+                "  tostring(ok and hl or false),\n" +
+                "  vim.api.nvim_buf_get_name(b) == '' and '(unnamed)' or vim.api.nvim_buf_get_name(b),\n" +
+                "  vim.api.nvim_buf_line_count(b))";
+
+            int buffer = _asking;
+            _client.Request("nvim_exec_lua", new object[] { lua, new object[] { buffer } },
+                (error, result) => UwUTermPlugin.Log.LogInfo(
+                    error != null ? $"nvim: asking about the buffer failed - {Excuse(error)}"
+                                  : $"nvim: buffer {buffer} is {result}"));
+        }
+
+        /// <summary>Neovim answers an error as [code, message]; the message is the half worth
+        /// reading.</summary>
+        private static string Excuse(object error) =>
+            error is object[] parts && parts.Length >= 2 ? parts[1] as string ?? parts[1]?.ToString()
+            : error?.ToString() ?? "no reason given";
+
+        /// <summary>Enough of a call's arguments to recognise it, and no more - a buffer's worth
+        /// of lines in a log is a log nobody reads.</summary>
+        private static string Brief(object[] arguments)
+        {
+            if (arguments == null || arguments.Length == 0) return "";
+
+            var said = new System.Text.StringBuilder();
+            foreach (object argument in arguments)
+            {
+                if (said.Length > 0) said.Append(", ");
+                if (said.Length > 120) { said.Append("..."); break; }
+
+                string text = argument is object[] many ? $"[{many.Length}]" : argument?.ToString() ?? "nil";
+                said.Append(text.Length > 60 ? text.Substring(0, 60) + "..." : text);
+            }
+
+            return said.ToString();
         }
 
         /// <summary>
@@ -156,6 +230,7 @@ namespace UwUTerm.Ui
 
             var client = new RpcClient();
             client.Ended += why => reason = why;
+            Listen(client);
 
             if (client.Connect(address))
             {
@@ -221,6 +296,14 @@ namespace UwUTerm.Ui
 
         // ---- running ---------------------------------------------------------------------
 
+        /// <summary>The room the editor believes it has, and what it made of it. Compared against
+        /// the window's own size, this says whether a view that has stopped following the window
+        /// is being told the wrong size or failing to act on the right one.</summary>
+        internal string Describe() =>
+            $"viewport {_rect.rect.width:F0}x{_rect.rect.height:F0}, " +
+            $"last seen {_lastWidth:F0}x{_lastHeight:F0}, " +
+            $"grid {_grid.Columns}x{_grid.Rows} at {_advance:F1}x{_lineHeight:F1}px";
+
         internal void Tick(bool focused)
         {
             if (_root == null || _client == null) return;
@@ -235,6 +318,12 @@ namespace UwUTerm.Ui
                     if (notification.Method == BufferEvent) Entered(notification);
                     else _ui.Handle(notification);
                 }
+            }
+
+            if (_askAgainAt > 0 && Time.frameCount >= _askAgainAt)
+            {
+                _askAgainAt = -1;
+                Ask();
             }
 
             if (Resized() || !_attached) Attach();
@@ -459,6 +548,33 @@ namespace UwUTerm.Ui
             if (_client == null || string.IsNullOrEmpty(filetype)) return;
             _client.Request("nvim_set_option_value",
                 new object[] { "filetype", filetype, new Dictionary<string, object> { { "buf", _buffer } } });
+
+            SayHowItIsHighlighted();
+        }
+
+        /// <summary>
+        /// What neovim made of the filetype we asked for.
+        ///
+        /// Setting the option is not the same as the buffer being highlighted: what listens for
+        /// FileType decides that, and a config of the player's own may set it back, may attach a
+        /// parser, or may have no parser to attach. The call going out unrefused says only that
+        /// it was accepted, so this asks the buffer what it ended up as - the filetype it holds,
+        /// whether a syntax was loaded, and whether treesitter is on it.
+        ///
+        /// Sent after the set, so it answers for the state that set left behind.
+        /// </summary>
+        private void SayHowItIsHighlighted()
+        {
+            if (!UwUTermPlugin.NvimDebug.Value || _client == null) return;
+
+            _asking = _buffer;
+            Ask();
+
+            // And again once the editor has had a moment. A parser attaching is not part of
+            // setting the option - it happens on the FileType that follows, and whatever does it
+            // may take its time - so an answer taken immediately says only what was true before
+            // anything had a chance to react.
+            _askAgainAt = Time.frameCount + SettleFrames;
         }
 
         /// <summary>

@@ -44,6 +44,7 @@ namespace UwUTerm
         internal static ConfigEntry<string> SearchActiveTextColor;
         internal static ConfigEntry<string> SearchActiveHighlightColor;
         internal static ConfigEntry<bool> PersistHistory;
+        internal static ConfigEntry<bool> PersistWindows;
         internal static ConfigEntry<int> HistoryLimit;
         internal static ConfigEntry<bool> HistoryIgnoreSpacePrefix;
         internal static ConfigEntry<bool> HistoryIgnoreDuplicates;
@@ -67,6 +68,7 @@ namespace UwUTerm
         internal static ConfigEntry<float> TaskWidth;
         internal static ConfigEntry<float> MinTaskWidth;
         internal static ConfigEntry<float> BarFontSize;
+        internal static ConfigEntry<bool> MenuIcon;
         internal static ConfigEntry<float> BarGap;
         internal static ConfigEntry<float> MenuGap;
         internal static ConfigEntry<float> WidgetPadding;
@@ -118,6 +120,7 @@ namespace UwUTerm
         private void Awake()
         {
             Log = Logger;
+            Home.Settle();
 
             FeatureTerminal = Config.Bind("Features", "Terminal", true,
                 "Replace the terminal. Grid screen, readline editing, recalling and searching\n" +
@@ -146,6 +149,13 @@ namespace UwUTerm
                 "Separate from Terminal because it writes a file. That file is plain text and\n" +
                 "holds whatever you typed, in-game passwords included. IgnoreSpacePrefix and\n" +
                 "IgnorePattern under [History] can keep chosen commands out of it.");
+
+            PersistWindows = Config.Bind("Features", "PersistWindows", true,
+                "Open each window where you last had one of its kind, in size as well as place.\n" +
+                "\n" +
+                "A kind gets a list rather than a single place, so three terminals come back as\n" +
+                "three terminals rather than three windows on top of each other. Kept in\n" +
+                "BepInEx/config/" + Guid + ".windows, one line per place.");
 
             CustomPrompt = Config.Bind("Features", "Prompt", false,
                 "Draw the prompt from the [Prompt] section instead of the game's own.\n" +
@@ -187,9 +197,9 @@ namespace UwUTerm
             TerminalFontName = Config.Bind("Terminal", "Font", "",
                 "Font to render the terminal in. Blank keeps the game's own.\n" +
                 "\n" +
-                "Copy the .ttf or .otf into BepInEx/fonts/ and name it here:\n" +
+                "Copy the .ttf or .otf into BepInEx/UwUTerm/fonts/ and name it here:\n" +
                 "\n" +
-                "    cp /usr/share/fonts/hack/Hack-Regular.ttf <game>/BepInEx/fonts/\n" +
+                "    cp /usr/share/fonts/hack/Hack-Regular.ttf <game>/BepInEx/UwUTerm/fonts/\n" +
                 "    Font = Hack\n" +
                 "\n" +
                 "The copy is required. Steam runs the game in a container with its own\n" +
@@ -316,10 +326,10 @@ namespace UwUTerm
             // ---- editor ------------------------------------------------------------------
 
             NvimPath = Config.Bind("Editor", "NvimPath", "",
-                "Where the neovim binary is. Blank looks in BepInEx/nvim/bin.");
+                "Where the neovim binary is. Blank looks in BepInEx/UwUTerm/nvim/bin.");
 
             NvimWorkspace = Config.Bind("Editor", "NvimWorkspace", "",
-                "The directory the editor starts in. Blank means BepInEx/workspace, made on\n" +
+                "The directory the editor starts in. Blank means BepInEx/UwUTerm/workspace, made on\n" +
                 "first use.\n" +
                 "\n" +
                 "A folder on your machine, holding none of the game's files - a script lives on\n" +
@@ -331,7 +341,7 @@ namespace UwUTerm
                 "Blank starts one, which is the default and needs nothing set up.\n" +
                 "\n" +
                 "A path is a unix socket, or a named pipe on Windows. host:port is tcp:\n" +
-                "  BepInEx/nvim-config/nvim.sock      (Linux, macOS)\n" +
+                "  BepInEx/UwUTerm/nvim-config/nvim.sock      (Linux, macOS)\n" +
                 "  \\\\.\\pipe\\uwuterm                   (Windows)\n" +
                 "  127.0.0.1:6789                     (either)\n" +
                 "\n" +
@@ -356,7 +366,7 @@ namespace UwUTerm
 
             NvimConfig = Config.Bind("Editor", "NvimConfig", "",
                 "Where the editor keeps its config, its plugins and its state. Blank means\n" +
-                "BepInEx/nvim-config, made on first use.\n" +
+                "BepInEx/UwUTerm/nvim-config, made on first use.\n" +
                 "\n" +
                 "The mod's own filetype files are installed under config/nvim there, and\n" +
                 "plugins go in data/nvim/site/pack/<any name>/start/<plugin>/ - neovim loads\n" +
@@ -388,14 +398,14 @@ namespace UwUTerm
                 "neovim infer it from the file name.");
 
             NvimDownload = Config.Bind("Editor", "NvimDownload", false,
-                "Off by default. Fetches neovim into BepInEx/nvim on startup when it is not\n" +
+                "Off by default. Fetches neovim into BepInEx/UwUTerm/nvim on startup when it is not\n" +
                 "already there.\n" +
                 "\n" +
                 "To install it yourself:\n" +
                 "  Linux    https://github.com/neovim/neovim/releases/latest/download/nvim-linux-x86_64.tar.gz\n" +
                 "  Windows  https://github.com/neovim/neovim/releases/latest/download/nvim-win64.zip\n" +
                 "\n" +
-                "Unpack it so the binary sits at BepInEx/nvim/bin/nvim (nvim.exe on Windows).");
+                "Unpack it so the binary sits at BepInEx/UwUTerm/nvim/bin/nvim (nvim.exe on Windows).");
 
             // ---- desktop -----------------------------------------------------------------
 
@@ -431,6 +441,15 @@ namespace UwUTerm
             MinTaskWidth = Config.Bind("Desktop", "MinTaskWidth", 40f,
                 "How narrow a window button may be squeezed before the row is allowed to run\n" +
                 "past the widgets, in pixels before BarScale.");
+
+            MenuIcon = Config.Bind("Desktop", "MenuIcon", false,
+                "Draw the mod's own mark on the start menu button instead of the game's.\n" +
+                "\n" +
+                "The game's is the size it is drawn at, so a bar taller than the one it was made\n" +
+                "for draws it enlarged. Ours is 256px and takes the theme's colour the same way.\n" +
+                "\n" +
+                "Off while the mark is still being drawn. Takes effect on restart - the button is\n" +
+                "given its sprite when the bar takes the desktop over.");
 
             BarFontSize = Config.Bind("Desktop", "BarFontSize", 15f,
                 "Size of the text on a window button, in pixels before BarScale.");
@@ -533,6 +552,7 @@ namespace UwUTerm
             Register("screen-clipboard", () => ScreenClipboard.Apply(_harmony));
             Register("window-close", () => _harmony.PatchAll(typeof(WindowClose)));
             Register("top-bar", () => TopBarTakeover.Apply(_harmony));
+            Register("desktop-icons", () => DesktopIcons.Apply(_harmony));
             BindHotkeys();
             PruneOrphanedSettings(Config, "settings");
             PruneOrphanedSettings(Hotkeys, "hotkeys");
@@ -701,6 +721,7 @@ namespace UwUTerm
             HostProbe.Tick();
             Patches.NvimEditor.Tick();
             Ui.TopBar.Tick();
+            Patches.WindowMemory.Tick();
             PollConfigFile();
         }
 
@@ -749,9 +770,14 @@ namespace UwUTerm
         private void OnDestroy()
         {
             Patches.NvimEditor.Shutdown();
+            Patches.WindowMemory.Flush();
             _harmony?.UnpatchSelf();
         }
 
-        private void OnApplicationQuit() => Patches.NvimEditor.Shutdown();
+        private void OnApplicationQuit()
+        {
+            Patches.NvimEditor.Shutdown();
+            Patches.WindowMemory.Flush();
+        }
     }
 }

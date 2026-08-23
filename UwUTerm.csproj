@@ -5,7 +5,7 @@
     <LangVersion>latest</LangVersion>
     <AssemblyName>UwUTerm</AssemblyName>
     <RootNamespace>UwUTerm</RootNamespace>
-    <Version>0.1.2</Version>
+    <Version>0.1.3</Version>
     <!-- BepInEx plugins are loaded by reflection; nothing here is publicly consumed. -->
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
     <DebugType>portable</DebugType>
@@ -31,6 +31,8 @@
 
   <ItemGroup>
     <Compile Include="src/**/*.cs" />
+    <!-- Our own artwork, carried inside the dll so there is nothing to install beside it. -->
+    <EmbeddedResource Include="assets/UwUTermIcon.png" LogicalName="UwUTerm.Icon.png" />
   </ItemGroup>
 
   <ItemGroup>
@@ -93,6 +95,10 @@
     <Reference Include="System.IO.Compression.FileSystem" />
     <Reference Include="UnityEngine.TextCoreFontEngineModule">
       <HintPath>$(GameManaged)/UnityEngine.TextCoreFontEngineModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.ImageConversionModule">
+      <HintPath>$(GameManaged)/UnityEngine.ImageConversionModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="UnityEngine.TextRenderingModule">

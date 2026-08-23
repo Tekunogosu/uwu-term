@@ -23,11 +23,11 @@ usage() {
 usage: $program [options]
 
   -a, --address ADDR   unix socket path, or host:port for tcp
-                       (default: GAME/BepInEx/nvim-config/nvim.sock)
+                       (default: GAME/BepInEx/UwUTerm/nvim-config/nvim.sock)
   -g, --game-dir DIR   the Grey Hack install (default: \$GREYHACK_DIR, then Local.props,
                        then the usual Steam locations)
   -w, --workspace DIR  where the session starts, so :w and :e land somewhere sensible
-                       (default: GAME/BepInEx/workspace)
+                       (default: GAME/BepInEx/UwUTerm/workspace)
   -n, --nvim PATH      which neovim to run (default: nvim from PATH)
   -f, --force          replace a socket left behind by a session that died
   -1, --once           stop when the session exits, rather than starting another
@@ -97,8 +97,8 @@ fi
 [ -n "$game" ] || die "no Grey Hack install found - pass --game-dir, or set GREYHACK_DIR"
 [ -d "$game" ] || die "not a directory: $game"
 
-: "${address:=$game/BepInEx/nvim-config/nvim.sock}"
-: "${workspace:=$game/BepInEx/workspace}"
+: "${address:=$game/BepInEx/UwUTerm/nvim-config/nvim.sock}"
+: "${workspace:=$game/BepInEx/UwUTerm/workspace}"
 
 if [ "$print_only" = 1 ]; then printf '%s\n' "$address"; exit 0; fi
 

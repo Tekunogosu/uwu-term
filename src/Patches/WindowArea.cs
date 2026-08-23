@@ -64,7 +64,7 @@ namespace UwUTerm.Patches
             {
                 if (Restore.TryGetValue(__instance, out Vector2 original))
                 {
-                    Place(__instance, parent, original, parent.rect.center);
+                    WindowGeometry.Place(rect, parent, original, parent.rect.center);
                     Restore.Remove(__instance);
                 }
             }
@@ -73,7 +73,7 @@ namespace UwUTerm.Patches
                 Restore[__instance] = rect.sizeDelta;
 
                 Rect area = Area(parent.rect);
-                Place(__instance, parent, area.size, area.center);
+                WindowGeometry.Place(rect, parent, area.size, area.center);
             }
 
             __instance.isMaximized = !__instance.isMaximized;
@@ -124,14 +124,5 @@ namespace UwUTerm.Patches
         }
 
         private static string _reported = "";
-
-        private static void Place(uDialog dialog, RectTransform parent, Vector2 size, Vector2 centre)
-        {
-            dialog.SetPivot(new Vector2(0.5f, 0.5f));
-            dialog.RectTransform.sizeDelta = size;
-
-            Vector3 world = parent.TransformPoint(new Vector3(centre.x, centre.y, 0f));
-            dialog.RectTransform.position = new Vector3(world.x, world.y, dialog.RectTransform.position.z);
-        }
     }
 }

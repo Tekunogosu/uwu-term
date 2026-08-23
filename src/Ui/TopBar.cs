@@ -251,6 +251,7 @@ namespace UwUTerm.Ui
                         _widgets.Insert(0, widget);
 
             HideUserIcon();
+            Brand();
 
             Host(_menu);
             Host(_user);
@@ -314,6 +315,89 @@ namespace UwUTerm.Ui
 
             widget.iconImg.gameObject.SetActive(false);
         }
+
+        /// <summary>
+        /// Put the mod's own mark on the start menu button.
+        ///
+        /// The game's is a sprite the size the game draws it, so a bar taller than the one it was
+        /// authored for enlarges it. Ours is carried inside the dll rather than installed beside
+        /// it, at a size no bar is going to run out of.
+        ///
+        /// Which image on the button is the mark rather than its background is not something to
+        /// assume: the smallest one with a sprite in it is, and the log says which object that
+        /// turned out to be so a wrong guess is visible rather than merely wrong.
+        /// </summary>
+        private void Brand()
+        {
+            if (!UwUTermPlugin.MenuIcon.Value || _menu == null) return;
+
+            Sprite mark = Mark();
+            if (mark == null) return;
+
+            Image smallest = null;
+            foreach (Image image in _menu.GetComponentsInChildren<Image>(true))
+            {
+                if (image.sprite == null) continue;
+                if (smallest == null || Area(image) < Area(smallest)) smallest = image;
+            }
+
+            if (smallest == null) return;
+
+            UwUTermPlugin.Log.LogInfo(
+                $"topbar: the menu button's mark is '{smallest.name}', was '{smallest.sprite.name}'");
+
+            smallest.sprite = mark;
+            smallest.preserveAspect = true;
+        }
+
+        private static float Area(Image image) =>
+            image.rectTransform.rect.width * image.rectTransform.rect.height;
+
+        /// <summary>Our icon, read out of the assembly once.</summary>
+        private static Sprite Mark()
+        {
+            if (_mark != null) return _mark;
+
+            try
+            {
+                var assembly = System.Reflection.Assembly.GetExecutingAssembly();
+                using (System.IO.Stream stream = assembly.GetManifestResourceStream("UwUTerm.Icon.png"))
+                {
+                    if (stream == null)
+                    {
+                        UwUTermPlugin.Log.LogWarning("topbar: the menu icon is not in the assembly");
+                        return null;
+                    }
+
+                    var bytes = new byte[stream.Length];
+                    stream.Read(bytes, 0, bytes.Length);
+
+                    var texture = new Texture2D(2, 2, TextureFormat.RGBA32, mipChain: true);
+                    if (!texture.LoadImage(bytes))
+                    {
+                        Object.Destroy(texture);
+                        return null;
+                    }
+
+                    texture.name = "UwUTerm.Icon";
+                    texture.wrapMode = TextureWrapMode.Clamp;
+                    texture.filterMode = FilterMode.Trilinear;
+                    texture.Apply(updateMipmaps: true, makeNoLongerReadable: true);
+
+                    _mark = Sprite.Create(texture, new Rect(0f, 0f, texture.width, texture.height),
+                                          new Vector2(0.5f, 0.5f));
+                    _mark.name = "UwUTerm.Icon";
+                }
+            }
+            catch (System.Exception e)
+            {
+                UwUTermPlugin.Log.LogWarning("topbar: could not read the menu icon - " + e.Message);
+            }
+
+            return _mark;
+        }
+
+        private static Sprite _mark;
 
         /// <summary>
         /// Take an object into our space without changing how big it looks.

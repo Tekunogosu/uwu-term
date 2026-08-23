@@ -25,8 +25,7 @@ namespace UwUTerm.Patches
         private static Regex _ignore;
         private static string _ignoreSource;
 
-        private static string Path =>
-            System.IO.Path.Combine(BepInEx.Paths.ConfigPath, UwUTermPlugin.Guid + ".history");
+        private static string Path => Home.History;
 
         internal static void Apply(Harmony harmony)
         {
@@ -140,6 +139,7 @@ namespace UwUTerm.Patches
         {
             try
             {
+                Directory.CreateDirectory(System.IO.Path.GetDirectoryName(Path));
                 File.WriteAllLines(Path, Entries.ToArray());
             }
             catch (Exception e)

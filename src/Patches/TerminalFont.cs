@@ -74,7 +74,7 @@ namespace UwUTerm.Patches
         /// there to be found rather than being a path they have to trust.</summary>
         private static void EnsureFontFolder()
         {
-            string folder = Path.Combine(Paths.BepInExRootPath, "fonts");
+            string folder = Home.Fonts;
             try
             {
                 if (!Directory.Exists(folder)) Directory.CreateDirectory(folder);
@@ -283,14 +283,14 @@ namespace UwUTerm.Patches
         }
 
         /// <summary>
-        /// Where to look, nearest first. BepInEx/fonts leads because it is the one directory
+        /// Where to look, nearest first. BepInEx/UwUTerm/fonts leads because it is the one directory
         /// guaranteed to be reachable - the game is running out of it - and /run/host is where
         /// Steam's container mounts the real root, which is the only way to reach the machine's
         /// own fonts from inside one.
         /// </summary>
         private static IEnumerable<string> Roots()
         {
-            yield return Path.Combine(Paths.BepInExRootPath, "fonts");
+            yield return Home.Fonts;
 
             string home = System.Environment.GetEnvironmentVariable("HOME");
             if (!string.IsNullOrEmpty(home))
@@ -318,7 +318,7 @@ namespace UwUTerm.Patches
         /// <summary>
         /// Every root and what it holds, rather than one flat list of names. Which roots exist
         /// is the useful half: it says whether the game can see the machine's fonts at all, and
-        /// an absent /run/host is the signal to drop a file into BepInEx/fonts instead.
+        /// an absent /run/host is the signal to drop a file into BepInEx/UwUTerm/fonts instead.
         /// </summary>
         private static void LogAvailable()
         {
@@ -357,7 +357,7 @@ namespace UwUTerm.Patches
             if (total == 0)
                 UwUTermPlugin.Log.LogWarning(
                     "font: nothing found anywhere. Put a .ttf or .otf in " +
-                    Path.Combine(Paths.BepInExRootPath, "fonts") + " and name it in TerminalFont.");
+                    Home.Fonts + " and name it in TerminalFont.");
         }
     }
 }

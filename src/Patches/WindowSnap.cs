@@ -171,7 +171,7 @@ namespace UwUTerm.Patches
 
             Unsnap(dialog);
 
-            Rect current = LocalRect(dialog.RectTransform, parent);
+            Rect current = WindowGeometry.LocalRect(dialog.RectTransform, parent);
             _grabOffset = current.center - pointer;
             _modifierDrag = dialog;
             _moving = dialog;
@@ -191,8 +191,8 @@ namespace UwUTerm.Patches
             if (parent == null) { _modifierDrag = null; return; }
             if (!TryGetPointer(parent, out Vector2 pointer)) return;
 
-            Rect current = LocalRect(rt, parent);
-            Place(rt, parent, current.size, pointer + _grabOffset);
+            Rect current = WindowGeometry.LocalRect(rt, parent);
+            WindowGeometry.Place(rt, parent, current.size, pointer + _grabOffset);
         }
 
         private static void EndDragTiming()
@@ -315,7 +315,7 @@ namespace UwUTerm.Patches
             if (!PreSnapSize.ContainsKey(dialog)) PreSnapSize[dialog] = rt.sizeDelta;
 
             Rect target = TargetFor(WorkArea(parent.rect), zone);
-            Place(rt, parent, target.size, target.center, refreshText: true);
+            WindowGeometry.Place(rt, parent, target.size, target.center, refreshText: true);
         }
 
         /// <summary>
@@ -333,11 +333,11 @@ namespace UwUTerm.Patches
             RectTransform parent = rt.parent as RectTransform;
             if (parent == null) return;
 
-            Rect current = LocalRect(rt, parent);
+            Rect current = WindowGeometry.LocalRect(rt, parent);
 
             if (!TryGetPointer(parent, out Vector2 pointer))
             {
-                Place(rt, parent, original, current.center, refreshText: true);
+                WindowGeometry.Place(rt, parent, original, current.center, refreshText: true);
                 return;
             }
 
@@ -346,60 +346,7 @@ namespace UwUTerm.Patches
 
             float left = pointer.x - grip * original.x;
             float top = current.yMax;
-            Place(rt, parent, original, new Vector2(left + original.x / 2f, top - original.y / 2f), refreshText: true);
-        }
-
-        // ---- geometry --------------------------------------------------------------
-
-        /// <summary>Size and centre in the parent's local space, whatever the pivot and
-        /// anchors happen to be - uDialog moves the pivot around mid-drag.</summary>
-        private static Rect LocalRect(RectTransform rt, RectTransform parent)
-        {
-            Vector3[] corners = new Vector3[4];
-            rt.GetWorldCorners(corners);
-            Vector3 bottomLeft = parent.InverseTransformPoint(corners[0]);
-            Vector3 topRight = parent.InverseTransformPoint(corners[2]);
-            return new Rect(bottomLeft.x, bottomLeft.y, topRight.x - bottomLeft.x, topRight.y - bottomLeft.y);
-        }
-
-        /// <summary>Size and place a window, always leaving it fully on the desktop.</summary>
-        private static void Place(RectTransform rt, RectTransform parent, Vector2 size, Vector2 centre, bool refreshText = false)
-        {
-            Rect area = parent.rect;
-            centre.x = (size.x >= area.width)
-                ? area.center.x
-                : Mathf.Clamp(centre.x, area.xMin + size.x / 2f, area.xMax - size.x / 2f);
-            centre.y = (size.y >= area.height)
-                ? area.center.y
-                : Mathf.Clamp(centre.y, area.yMin + size.y / 2f, area.yMax - size.y / 2f);
-
-            uDialog dialog = rt.GetComponent<uDialog>();
-            if (dialog != null) dialog.SetPivot(new Vector2(0.5f, 0.5f));
-
-            rt.sizeDelta = size;
-            Vector3 world = parent.TransformPoint(new Vector3(centre.x, centre.y, 0f));
-            rt.position = new Vector3(world.x, world.y, rt.position.z);
-
-            if (refreshText) RefreshText(rt);
-        }
-
-        /// <summary>
-        /// A snap changes a window's size in one jump, and TMP rebuilds its mesh from the
-        /// new layout - discarding any per-vertex colouring a component had applied on top,
-        /// which is why the mail client loses its address highlighting until you hover a
-        /// word and it re-tints. Regenerating the text raises TMP's TEXT_CHANGED, giving
-        /// those components the chance to reapply. A drag does not need this: it resizes a
-        /// little each frame, so the effects never fall far behind.
-        /// </summary>
-        private static void RefreshText(RectTransform root)
-        {
-            LayoutRebuilder.ForceRebuildLayoutImmediate(root);
-
-            foreach (TMP_Text text in root.GetComponentsInChildren<TMP_Text>(true))
-            {
-                text.SetAllDirty();
-                text.ForceMeshUpdate(true, true);
-            }
+            WindowGeometry.Place(rt, parent, original, new Vector2(left + original.x / 2f, top - original.y / 2f), refreshText: true);
         }
 
         private static uDialog DialogUnderPointer()

@@ -33,7 +33,7 @@ namespace UwUTerm.Nvim
                 string configured = UwUTermPlugin.NvimPath.Value.Trim();
                 if (configured.Length > 0) return configured;
 
-                string root = Path.Combine(BepInEx.Paths.BepInExRootPath, "nvim");
+                string root = Home.Nvim;
                 return IsWindows
                     ? Path.Combine(root, "bin", "nvim.exe")
                     : Path.Combine(root, "bin", "nvim");
@@ -78,7 +78,7 @@ namespace UwUTerm.Nvim
                 string configured = UwUTermPlugin.NvimWorkspace.Value.Trim();
                 string path = configured.Length > 0
                     ? configured
-                    : Path.Combine(BepInEx.Paths.BepInExRootPath, "workspace");
+                    : Home.Workspace;
 
                 try
                 {
@@ -114,7 +114,7 @@ namespace UwUTerm.Nvim
                 if (string.Equals(configured, "system", StringComparison.OrdinalIgnoreCase)) return null;
                 if (configured.Length > 0) return configured;
 
-                return Path.Combine(BepInEx.Paths.BepInExRootPath, "nvim-config");
+                return Home.NvimConfig;
             }
         }
 
@@ -179,8 +179,8 @@ namespace UwUTerm.Nvim
 
         private static void Fetch()
         {
-            string root = Path.Combine(BepInEx.Paths.BepInExRootPath, "nvim");
-            string archive = Path.Combine(BepInEx.Paths.BepInExRootPath, IsWindows ? "nvim.zip" : "nvim.tar.gz");
+            string root = Home.Nvim;
+            string archive = Path.Combine(Home.Root, IsWindows ? "nvim.zip" : "nvim.tar.gz");
 
             try
             {

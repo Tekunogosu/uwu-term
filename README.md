@@ -18,7 +18,7 @@ All sections are define by `Title (config feature flag)`.
  
 ## A rebuilt terminal *(Terminal)*
 
-The terminal has been completely re-written.. well mostly. The UI still looks the same but I've added all the things you would want from a modern terminal. The architecture was modeled after the XtermShell C# project, specifically the packed cell, buffer line, scrollback and the reflow strategies. 
+The terminal has been completely re-written.. well mostly. The UI still looks the same but I've added all the things you would want from a modern terminal. The architecture was modeled after the XtermSharp C# project, specifically the packed cell, buffer line, scrollback and the reflow strategies. 
 
 
 ### Selection and clipboard *(Terminal)*
@@ -38,12 +38,12 @@ There is now two buffers that are independent of each other, just like a normal 
 
 | | |
 |---|---|
-| Move | `C-a` start, `C-e` end, `C-b`/`C-f` char, `M-b`/`M-f` word, `C-Left`/`C-Right` word |
+| Move | `C-a` start, `C-e` end, `C-b` char, `M-b`/`M-f` word, `C-Left`/`C-Right` word |
 | Kill | `C-k` to end, `C-u` to start, `C-w` word back (whitespace), `M-Backspace`/`C-Backspace` word back, `M-d` word forward, `C-d` delete char |
 | Yank | `C-y` paste last kill, `M-y` cycle the kill ring |
 | Edit | `C-t` swap chars, `M-t` swap words, `M-u`/`M-l`/`M-c` case, `C-z` undo, `C-l` clear |
 | History | `C-p` previous, `C-n` next, `C-r`/`C-s` incremental search |
-| Find | `C-f` search the scrollback |
+| Find | `C-f` search the scrollback — which is why `C-f` is not forward-char. `C-f`, `C-r` and `C-s` are the three rebindable keys, in the hotkeys file |
 
 Consecutive kills accumulate into one kill-ring entry, directionally, as readline does. The
 ring is shared across terminal windows, so you can kill in one and yank in another.
@@ -80,13 +80,29 @@ Palette = user:#50fa7b, user.root:#ff5555, user.guest:#f8f8f2, host:#8be9fd, pat
 
 ### Font *(Terminal)*
 
-Copy a `.ttf` or `.otf` into `BepInEx/fonts/` and name it in `TerminalFont` config option. Glyphs it doesn't have fall back to the game's own font. If you inted to use the new nvim editor with a IDE plugin like AstroNvim, install a nerdfont version of your font and set it to that. The fonts set here affect the code editor as well, its the same rendering system.
+Copy a `.ttf` or `.otf` into `BepInEx/UwUTerm/fonts/` and name it in `TerminalFont` config option. Glyphs it doesn't have fall back to the game's own font. If you inted to use the new nvim editor with a IDE plugin like AstroNvim, install a nerdfont version of your font and set it to that. The fonts set here affect the code editor as well, its the same rendering system.
 
 
 ## Persistent history *(PersistHistory)*
-There is now a .bash_history-like file that holds your past commands. Its not seperated by user, so everything is saved - I might change it to be user@host based if its wanted/requested.
+There is now a .bash_history-like file that holds your past commands, at `BepInEx/UwUTerm/workspace/.history`. Its not seperated by user, so everything is saved - I might change it to be user@host based if its wanted/requested.
 
 
+
+## The top bar *(Desktop)*
+
+The game gives you two bars — a thin one along the top with the menu button, clock and notification icons, and a taskbar along the bottom holding your windows. This rolls both into one bar at the top and hands the space the bottom one was using back to the desktop, so the icon grid gets the whole screen.
+
+The window buttons are drawn by the mod instead of the game. The game rebuilt every button from scratch whenever any window was focused — a GameObject per window, per click — where these are built once when a window opens and told what changed after that. They also fit: however many windows you have open, the row stops where the widgets start instead of running underneath them.
+
+Everything else in the bar is still the game's own widget, just moved. The clock, the notification icons and the user name are the same objects, so they behave the same and follow whatever theme you pick in the appearance menu. Alt-tab still works too — the buttons carry the game's own task component rather than a copy of it.
+
+Maximising and snapping know the bar is there, so a maximised window fills the desktop underneath it instead of tucking under it.
+
+The `[Desktop]` section sizes everything in pixels: `BarHeight`, `TaskWidth`, `MinTaskWidth` (how narrow a button may get before the row is allowed to run long), `BarFontSize`, `BarGap` between the groups, `MenuGap` between the start button and your name, and `WidgetPadding` around each widget. `BarScale` multiplies all of them. Worth knowing that the game's own UI-size setting is a reference resolution rather than a scale — its "100%" is 1920x1080 stretched to your display, so it isn't 1:1 on anything wider — while these numbers are actual pixels.
+
+`MenuIcon` puts the mod's own mark on the start menu button in place of the game's. Off by default for now.
+
+This one takes effect on restart, since the bar takes the game's widgets over as it starts.
 
 ##  Window snapping *(WindowSnapping)*
 Drag a window to a screen edge for half, a corner for a quarter, the top to fill. There is also a snapping ghost to show you where the winow will expand.
@@ -95,6 +111,12 @@ Drag a window to a screen edge for half, a corner for a quarter, the top to fill
 
 Hold `Ctrl` to drag a window from anywhere, not just its titlebar.
 
+
+## Remembered window positions *(PersistWindows)*
+
+Windows open where you last had them, size as well as place. It remembers per kind of window, and it keeps a list rather than a single spot, so if you left three terminals open they come back as three terminals in three places instead of three stacked on one.
+
+Nothing needs saving by hand — it writes to `BepInEx/config/com.tekunogosu.uwuterm.windows` on its own. If you change resolution, or make the bar taller, anything that would come back off the edge of the screen is pulled onto it.
 
 ## Mail headers *(Mail)*
 I added a small "headers" link to the upper right coner of each message so you can see everything about your email, include who you are talking to.. I forget sometimes so thats why this is here. 
@@ -119,7 +141,7 @@ the window renders the editor's own screen rather than imitating one. Keys and m
 reach it: click, drag, wheel, double-click and the modifiers, on the same terms as any
 neovim. This IS nvim, so your nvim config controls how it behaves.
 
-Because this is a process on your machine, you can easily save/load scripts from your desktop to/from the game. Saving with nvim `:w` will write to the `Bepinex/workspace` folder by default which you can adjust in the config. The save button and compile button in the default UI is still there and is how you save a script to the in-game filesystem or compile. No more copy + pasting to/from the game or having to use Greybels functions to send it to the game if you dont want.  
+Because this is a process on your machine, you can easily save/load scripts from your desktop to/from the game. Saving with nvim `:w` will write to the `BepInEx/UwUTerm/workspace` folder by default which you can adjust in the config. The save button and compile button in the default UI is still there and is how you save a script to the in-game filesystem or compile. No more copy + pasting to/from the game or having to use Greybels functions to send it to the game if you dont want.  
 
 The buffer's filetype is set to `greyscript`, so syntax highlighting and language support
 are whatever you install. The
@@ -132,10 +154,11 @@ Config `NvimFiletype` changes the name, or blank leaves neovim to infer it.
 
 | | |
 |---|---|
-| `BepInEx/nvim/` | The neovim install. Replace the whole directory to upgrade. |
-| `BepInEx/nvim-config/config/nvim/` | `init.lua` and everything else neovim reads as config. |
-| `BepInEx/nvim-config/data/nvim/site/pack/*/start/` | Plugins, when the game starts the editor. |
-| `BepInEx/workspace/` | Where the editor starts and `:w` writes. |
+| `BepInEx/UwUTerm/` | Everything the mod owns. Made on first run; folders from an older install are moved in automatically. |
+| `BepInEx/UwUTerm/nvim/` | The neovim install. Replace the whole directory to upgrade. |
+| `BepInEx/UwUTerm/nvim-config/config/nvim/` | `init.lua` and everything else neovim reads as config. |
+| `BepInEx/UwUTerm/nvim-config/data/nvim/site/pack/*/start/` | Plugins, when the game starts the editor. |
+| `BepInEx/UwUTerm/workspace/` | Where the editor starts and `:w` writes. Command history is the `.history` file in here. |
 
 The `nvim-config` setup is primarily for those having to play the game using steam through flatpak. Flatpak sandoxes steam and thus the games "home" files are not the same as your actual desktop.  
 
@@ -165,7 +188,7 @@ where the game runs:
 
 ```ini
 [Editor]
-NvimAddress = /path/to/Grey Hack/BepInEx/nvim-config/nvim.sock
+NvimAddress = /path/to/Grey Hack/BepInEx/UwUTerm/nvim-config/nvim.sock
 ```
 
 The address is a path — a unix socket, or a named pipe on Windows — or `host:port` for tcp.
@@ -180,15 +203,25 @@ not have the container problem. To run a session there anyway, start one and poi
 nvim --headless --listen \\.\pipe\uwuterm
 ```
 
-### Limitation
-With flatpak needed to use a socket to communicate, you only get 1 nvim window in game thats tied to it. After the first window, any subsequent windows will default to base nvim NOT your systems nvim on that socket. 
+### One session per window
 
+`NvimSessionPerWindow` is on by default. Rather than every window attaching to the one session
+on `NvimAddress`, each window asks that session to start a neovim of its own beside it — on your
+machine, with your config, your plugins and your language servers. So the second and third
+windows are as capable as the first. One is kept warming ahead of time, because a window opens
+faster than a neovim starts.
+
+Turn it off and every window attaches to the daemon's session directly. One neovim has one
+screen, so they all show the same buffer at the size of the smallest window — which is the
+limitation this setting exists to remove.
 
 Behaviour with a session:
 
-- Scripts opened in the game become buffers in it, alongside whatever else is loaded, so
-  `:ls`, `:b` and plugins see all of them.
-- Closing a game window detaches the UI. The session and its buffers stay.
+- A window's session is its own. Scripts opened in that window are buffers in it, so `:ls`, `:b`
+  and plugins see them there — not in the session you have open in a terminal, which is the one
+  handing the sessions out rather than one being drawn.
+- Closing a game window ends the session that window was given. With `NvimSessionPerWindow = false`
+  it only detaches, and the daemon's session and its buffers stay.
 - If the session ends, the daemon starts another on the same address and the game
   reconnects. `Ctrl-C` stops the daemon; `--once` disables the restarting.
 - If nothing is listening, the game starts an editor of its own. The log records which
@@ -210,7 +243,7 @@ A directory under `pack/<any name>/start/` is loaded at startup — neovim's own
 mechanism, needing nothing else:
 
 ```sh
-cd "<game>/BepInEx/nvim-config/data/nvim/site/pack/greyhack/start"
+cd "<game>/BepInEx/UwUTerm/nvim-config/data/nvim/site/pack/greyhack/start"
 git clone --depth 1 https://github.com/nvim-lualine/lualine.nvim
 ```
 
@@ -234,7 +267,7 @@ a plugin manager works normally.
 3. On Linux, launch through Steam with launch options:
    `"<game folder>/run_bepinex.sh" %command%`. On Windows BepInEx's own installer handles
    the launch and no launch option is needed.
-4. For the editor, put a neovim at `BepInEx/nvim/bin/nvim` (`nvim/bin/nvim.exe` on Windows)
+4. For the editor, put a neovim at `BepInEx/UwUTerm/nvim/bin/nvim` (`nvim/bin/nvim.exe` on Windows)
    or set `NvimDownload = true` to have one fetched. `NvimPath` names one somewhere else.
 
 

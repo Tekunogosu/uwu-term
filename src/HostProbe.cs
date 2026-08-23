@@ -150,7 +150,7 @@ namespace UwUTerm
         {
             sb.Append("\n-- bundled editor --\n");
 
-            string root = Path.Combine(BepInEx.Paths.BepInExRootPath, "nvim");
+            string root = Home.Nvim;
             foreach (string candidate in new[]
                      {
                          Path.Combine(root, "bin", "nvim"),

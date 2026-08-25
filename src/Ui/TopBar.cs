@@ -645,7 +645,8 @@ namespace UwUTerm.Ui
 
             _gone.Clear();
             foreach (KeyValuePair<uDialog, TaskButton> pair in _buttons)
-                if (pair.Key == null || !open.Contains(pair.Key)) _gone.Add(pair.Key);
+                if (pair.Key == null || !open.Contains(pair.Key) || Browser.Tabs.IsBackground(pair.Key))
+                    _gone.Add(pair.Key);
 
             foreach (uDialog closed in _gone)
             {
@@ -658,13 +659,17 @@ namespace UwUTerm.Ui
             {
                 if (window == null) continue;
 
+                // A browser window that is somebody else's tab is not a window of its own here:
+                // a group of tabs is one thing on the bar, the way it is one thing on screen.
+                if (Browser.Tabs.IsBackground(window)) continue;
+
                 if (!_buttons.TryGetValue(window, out TaskButton button))
                 {
                     button = TaskButton.Make(_rowRoot, window, _tasks, Font(), _theme);
                     _buttons[window] = button;
                 }
 
-                button.Follow(window == _tasks.CurrentTask, _theme);
+                button.Follow(window == Browser.Tabs.Represent(_tasks.CurrentTask), _theme);
                 _row.Add(button);
             }
         }

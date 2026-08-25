@@ -5,7 +5,7 @@
     <LangVersion>latest</LangVersion>
     <AssemblyName>UwUTerm</AssemblyName>
     <RootNamespace>UwUTerm</RootNamespace>
-    <Version>0.1.4</Version>
+    <Version>0.2.0</Version>
     <!-- BepInEx plugins are loaded by reflection; nothing here is publicly consumed. -->
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
     <DebugType>portable</DebugType>
@@ -28,6 +28,20 @@
     <BepInExCore>$(GreyHackDir)/BepInEx/core</BepInExCore>
     <DeployToGame Condition="'$(DeployToGame)' == ''">true</DeployToGame>
   </PropertyGroup>
+
+  <!-- The version lives here and nowhere else. BepInPlugin needs a compile-time constant, so it
+       cannot read the assembly's own version at runtime - the constant is written from this one
+       instead, and package.sh reads the same property when it names the zips. -->
+  <Target Name="GenerateVersion" BeforeTargets="BeforeCompile">
+    <PropertyGroup>
+      <VersionSource>$(IntermediateOutputPath)Version.g.cs</VersionSource>
+    </PropertyGroup>
+    <WriteLinesToFile File="$(VersionSource)" Overwrite="true" WriteOnlyWhenDifferent="true"
+                      Lines="namespace UwUTerm { internal static class Build { internal const string Version = &quot;$(Version)&quot;%3B } }" />
+    <ItemGroup>
+      <Compile Include="$(VersionSource)" />
+    </ItemGroup>
+  </Target>
 
   <ItemGroup>
     <Compile Include="src/**/*.cs" />

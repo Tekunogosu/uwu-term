@@ -47,6 +47,10 @@ namespace UwUTerm.Patches
         /// </summary>
         private static bool SkipBuildingButtons() => !TopBar.Owns;
 
-        private static void FollowTheme(UI_Theme theme) => TopBar.Paint(theme);
+        private static void FollowTheme(UI_Theme theme)
+        {
+            TopBar.Paint(theme);
+            Browser.Tabs.Paint(theme);
+        }
     }
 }

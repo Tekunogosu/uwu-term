@@ -72,6 +72,10 @@ namespace UwUTerm.Patches
             {
                 if (window == null) continue;
 
+                // A tab shares its group's rectangle rather than having one of its own, so only
+                // the window on screen is counted and only its place is written down.
+                if (Browser.Tabs.IsBackground(window)) continue;
+
                 RectTransform rect = window.RectTransform;
                 RectTransform parent = rect != null ? rect.parent as RectTransform : null;
                 if (parent == null) continue;
@@ -148,6 +152,17 @@ namespace UwUTerm.Patches
                 Mathf.Clamp(want.center.y, area.yMin + size.y / 2f, area.yMax - size.y / 2f));
 
             return new Rect(centre - size / 2f, size);
+        }
+
+        /// <summary>Stop holding a window to the place it was opened at. A window taken into a
+        /// tab group belongs on the group's rectangle, not on the one its kind was last left at -
+        /// and a hold re-asserted every frame would win that argument for as long as it lasted.</summary>
+        internal static void Release(uDialog window)
+        {
+            if (window == null) return;
+
+            Holding[window] = 0f;
+            Wanted.Remove(window);
         }
 
         private static void Forget(List<uDialog> open)

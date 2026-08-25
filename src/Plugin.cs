@@ -12,7 +12,10 @@ namespace UwUTerm
     {
         public const string Guid = "com.tekunogosu.uwuterm";
         public const string Name = "UwUTerm";
-        public const string Version = "0.1.0";
+        /// <summary>Written from &lt;Version&gt; in UwUTerm.csproj at build time, which is also where
+        /// package.sh reads it. BepInPlugin needs a constant, so the number cannot simply be read
+        /// off the assembly - but it can be generated, and one that is generated cannot drift.</summary>
+        public const string Version = Build.Version;
 
         internal static ManualLogSource Log;
         internal static ConfigFile Hotkeys;
@@ -23,6 +26,7 @@ namespace UwUTerm
         internal static ConfigEntry<bool> FeatureMail;
         internal static ConfigEntry<bool> FeatureWindows;
         internal static ConfigEntry<bool> FeatureCommandTidy;
+        internal static ConfigEntry<bool> FeatureBrowser;
         internal static ConfigEntry<bool> TidyLs;
 
         internal static ConfigEntry<int> KillRingSize;
@@ -81,6 +85,11 @@ namespace UwUTerm
         internal static ConfigEntry<bool> EnableModifierDrag;
         internal static ConfigEntry<string> ModifierDragKey;
 
+        internal static ConfigEntry<float> TabWidth;
+        internal static ConfigEntry<float> MinTabWidth;
+        internal static ConfigEntry<float> TabFontSize;
+        internal static ConfigEntry<bool> ConfirmCloseTabs;
+
         internal static ConfigEntry<bool> CompletionDebug;
         internal static ConfigEntry<bool> MailDebug;
         internal static ConfigEntry<bool> ScreenDebug;
@@ -89,10 +98,12 @@ namespace UwUTerm
         internal static ConfigEntry<bool> BarTint;
         internal static ConfigEntry<bool> ProbeHost;
         internal static ConfigEntry<bool> SnapDebug;
+        internal static ConfigEntry<bool> BrowserDebug;
         internal static ConfigEntry<bool> NvimDebug;
         internal static ConfigEntry<bool> DebugOutput;
 
         internal static ConfigEntry<bool> EnableSnapHotkeys;
+        internal static ConfigEntry<bool> EnableTabHotkeys;
         internal static ConfigEntry<KeyboardShortcut> SnapLeft;
         internal static ConfigEntry<KeyboardShortcut> SnapRight;
         internal static ConfigEntry<KeyboardShortcut> SnapFull;
@@ -178,6 +189,18 @@ namespace UwUTerm
                 "Tidy the output of individual shell commands, and accept flag spellings the\n" +
                 "server rejects. Off turns every one of them off; the [CommandTidy] section\n" +
                 "switches them one at a time.");
+
+            FeatureBrowser = Config.Bind("Features", "BrowserTabs", true,
+                "Tabs in the browser: a row across the top of the window, one page each.\n" +
+                "\n" +
+                "A tab is a whole browser rather than a saved page, so switching costs nothing\n" +
+                "and loses nothing - a download, a bank session or a page still loading carries\n" +
+                "on in a tab nobody is looking at. It is also a real Browser.exe, because the\n" +
+                "server will not answer a window with no process behind it: every tab uses RAM\n" +
+                "and shows up in ps, exactly as a second browser window does today.\n" +
+                "\n" +
+                "Launching Browser.exe still opens a window of its own, from a terminal, a\n" +
+                "script or the desktop. Tabs come from the + button and Ctrl+T.");
 
             // ---- terminal ----------------------------------------------------------------
 
@@ -488,6 +511,22 @@ namespace UwUTerm
             ModifierDragKey = Config.Bind("Windows", "ModifierDragKey", "ctrl",
                 "Modifier for drag-from-anywhere: ctrl, alt or shift.");
 
+            // ---- browser -----------------------------------------------------------------
+
+            TabWidth = Config.Bind("Browser", "TabWidth", 180f,
+                "How wide a tab is when the row is not crowded.");
+
+            MinTabWidth = Config.Bind("Browser", "MinTabWidth", 60f,
+                "How narrow a tab may be squeezed before the row runs out of the space it was\n" +
+                "given. Below this a tab is no longer readable.");
+
+            TabFontSize = Config.Bind("Browser", "TabFontSize", 13f,
+                "Point size of the name on a tab.");
+
+            ConfirmCloseTabs = Config.Bind("Browser", "ConfirmClose", true,
+                "Ask before closing a window that is carrying more than one tab. Off closes\n" +
+                "them all without a question.");
+
             // ---- diagnostics -------------------------------------------------------------
 
             CompletionDebug = Config.Bind("Diagnostics", "CompletionDebug", false,
@@ -528,6 +567,14 @@ namespace UwUTerm
             SnapDebug = Config.Bind("Diagnostics", "SnapDebug", false,
                 "Log window drag and snap-zone decisions.");
 
+            BrowserDebug = Config.Bind("Diagnostics", "BrowserDebug", false,
+                "Log the band a browser window's tab row was measured into, what was standing\n" +
+                "in it, and every window taken into a group.\n" +
+                "\n" +
+                "The Browser prefab's hierarchy is decided in the scene and cannot be read from\n" +
+                "decompiled code, so the band is measured at runtime from the toolbar. This is\n" +
+                "what says whether it landed where it was meant to.");
+
             DebugOutput = Config.Bind("Diagnostics", "DebugOutput", false,
                 "Log every command sent and every output block received. Noisy.");
 
@@ -553,6 +600,8 @@ namespace UwUTerm
             Register("window-close", () => _harmony.PatchAll(typeof(WindowClose)));
             Register("top-bar", () => TopBarTakeover.Apply(_harmony));
             Register("desktop-icons", () => DesktopIcons.Apply(_harmony));
+            Register("window-focus", () => WindowFocus.Apply(_harmony));
+            Register("browser-tabs", () => Browser.Tabs.Apply(_harmony));
             BindHotkeys();
             PruneOrphanedSettings(Config, "settings");
             PruneOrphanedSettings(Hotkeys, "hotkeys");
@@ -676,6 +725,14 @@ namespace UwUTerm
                 new KeyboardShortcut(KeyCode.Alpha4, KeyCode.LeftControl, KeyCode.LeftAlt, KeyCode.LeftShift),
                 "Bottom right.");
 
+            EnableTabHotkeys = Hotkeys.Bind("Browser", "EnableTabHotkeys", true,
+                "Drive the browser's tabs from the keyboard: Ctrl+T opens one, Ctrl+W closes\n" +
+                "the one on screen, and Ctrl+1 to Ctrl+9 select by position - Ctrl+9 being the\n" +
+                "last tab however many there are.\n" +
+                "\n" +
+                "Fixed rather than rebindable, like the readline keys: they are the bindings\n" +
+                "every browser has, and the game itself claims none of them.");
+
             DumpBar = Hotkeys.Bind("Diagnostics", "DumpBar",
                 new KeyboardShortcut(KeyCode.F9, KeyCode.LeftControl, KeyCode.LeftShift),
                 "Write the top bar's layout to the log, as it is at that moment.\n" +
@@ -722,6 +779,7 @@ namespace UwUTerm
             Patches.NvimEditor.Tick();
             Ui.TopBar.Tick();
             Patches.WindowMemory.Tick();
+            Browser.Tabs.Tick();
             PollConfigFile();
         }
 

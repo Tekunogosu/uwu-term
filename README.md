@@ -118,6 +118,20 @@ Windows open where you last had them, size as well as place. It remembers per ki
 
 Nothing needs saving by hand — it writes to `BepInEx/config/com.tekunogosu.uwuterm.windows` on its own. If you change resolution, or make the bar taller, anything that would come back off the edge of the screen is pulled onto it.
 
+## Browser tabs *(BrowserTabs)*
+
+A row of tabs across the top of the browser, one page each. `+` or `Ctrl+T` opens one; the `×` on a tab, a middle click anywhere on it, or `Ctrl+W` closes one; `Ctrl+1`..`Ctrl+9` pick by position — `Ctrl+9` being the last one however many there are. The keys are ignored while you are typing in a text field, so they never end up in the address bar.
+
+A tab holds everything the page had, because a tab *is* a browser: its own history, its own bank session, its own half-finished download. Switching away from one costs it nothing and a page still loading in a background tab carries on loading.
+
+That does mean a tab is a real `Browser.exe` — the server will not answer a browser with no process behind it, so every tab uses RAM and shows up in `ps`, exactly as a second browser window does today. It is launched as the browser it was opened from: open the browser as root and its tabs are root too, open it over an ssh connection and its tabs open on that machine.
+
+Launching `Browser.exe` still opens a window of its own, whether from a terminal, a script or the desktop icon. Tabs only ever come from the `+` button and `Ctrl+T`.
+
+The row sits in the bar the game already had. Grey Hack's browser ships with a single tab reading "Main Page" and a `+` button beside it that was left switched off — an unfinished tab bar. The tabs replace those two and go in their place, so the page is exactly as tall as it was before.
+
+Closing a window that is carrying more than one tab asks first. `[Browser] ConfirmClose = false` closes them all without a question, and the `[Browser]` section also sets the width of a tab and its font size.
+
 ## Mail headers *(Mail)*
 I added a small "headers" link to the upper right coner of each message so you can see everything about your email, include who you are talking to.. I forget sometimes so thats why this is here. 
 
